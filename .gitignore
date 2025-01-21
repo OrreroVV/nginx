@@ -1,0 +1,7 @@
+objs/
+.vscode/
+MakeFile
+GPATH
+GRTAGS
+GTAGS
+bin/

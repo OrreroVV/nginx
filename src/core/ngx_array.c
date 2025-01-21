@@ -13,7 +13,7 @@ ngx_array_t *
 ngx_array_create(ngx_pool_t *p, ngx_uint_t n, size_t size)
 {
     ngx_array_t *a;
-
+    // 创建ngx_array_t
     a = ngx_palloc(p, sizeof(ngx_array_t));
     if (a == NULL) {
         return NULL;
@@ -33,11 +33,13 @@ ngx_array_destroy(ngx_array_t *a)
     ngx_pool_t  *p;
 
     p = a->pool;
-
+    // 只针对于分配在第一个内存块上的数据进行destroy
+    //如果该数组分配的内存末尾在d.last,那么d.last -= size大小
     if ((u_char *) a->elts + a->size * a->nalloc == p->d.last) {
         p->d.last -= a->size * a->nalloc;
     }
 
+    //如果如果上一步做到了，那么也把array_t的内存也释放掉
     if ((u_char *) a + sizeof(ngx_array_t) == p->d.last) {
         p->d.last = (u_char *) a;
     }
@@ -59,6 +61,7 @@ ngx_array_push(ngx_array_t *a)
 
         p = a->pool;
 
+        // 如果该数组刚好是第一个内存块的d.last并且第一个内存块还没用完
         if ((u_char *) a->elts + size == p->d.last
             && p->d.last + a->size <= p->d.end)
         {
@@ -70,7 +73,7 @@ ngx_array_push(ngx_array_t *a)
             p->d.last += a->size;
             a->nalloc++;
 
-        } else {
+        } else { // 大概率走这里，分配一个新的内存块区域
             /* allocate a new array */
 
             new = ngx_palloc(p, 2 * size);

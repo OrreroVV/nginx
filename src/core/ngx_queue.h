@@ -103,6 +103,9 @@ struct ngx_queue_s {
     (h)->prev->next = h;
 
 
+/**
+ * @brief 从队列节点指针（q）获取包含该节点的结构体指针。
+ */
 #define ngx_queue_data(q, type, link)                                         \
     (type *) ((u_char *) q - offsetof(type, link))
 

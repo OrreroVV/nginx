@@ -58,7 +58,7 @@ struct ngx_pool_s {
     ngx_pool_data_t       d;        /* 记录内存池的信息 */
     size_t                max;      /* 线程池最大可分配内存 */
     ngx_pool_t           *current;  /* 指向当前的内存池指针地址。ngx_pool_t链表上最后一个缓存池结构*/
-    ngx_chain_t          *chain;    /* 缓冲区链表 */
+    ngx_chain_t          *chain;    /* 缓冲区链表, 管理和缓存已经清空（释放）但仍可重用的 ngx_chain_t 链表节点 */
 
     // 只有父节点才有这些信息large和cleanup
     ngx_pool_large_t     *large;    /* 存储大数据的链表 */
@@ -91,7 +91,7 @@ void ngx_destroy_pool(ngx_pool_t *pool);
 void ngx_reset_pool(ngx_pool_t *pool);
 
 /**
- * @brief 使用内存池分配一块内存
+ * @brief 使用内存池分配一块内存 (主调用)
  * @param pool 父节点内存池
  * @param size 大小
  * @return void* 返回指针
@@ -100,7 +100,7 @@ void *ngx_palloc(ngx_pool_t *pool, size_t size);
 void *ngx_pnalloc(ngx_pool_t *pool, size_t size);
 
 /**
- * @brief 从内存池中分配一个size大小的内存 (主调用)
+ * @brief 从内存池中分配一个size大小的内存并都置为0 (主调用)
  * @param pool 
  * @param size 
  * @return void* 

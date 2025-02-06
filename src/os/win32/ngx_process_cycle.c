@@ -1006,31 +1006,37 @@ ngx_single_process_cycle(ngx_cycle_t *cycle)
 ngx_int_t
 ngx_os_signal_process(ngx_cycle_t *cycle, char *sig, ngx_pid_t pid)
 {
-    HANDLE     ev;
-    ngx_int_t  rc;
-    char       evn[NGX_PROCESS_SYNC_NAME];
+    HANDLE     ev;                       // Windows 事件句柄
+    ngx_int_t  rc;                       // 返回值，用于标记操作结果
+    char       evn[NGX_PROCESS_SYNC_NAME];  // 存储事件名称的字符串
 
+    // 生成全局事件名称，格式为 "Global\ngx_<sig>_<pid>"
     ngx_sprintf((u_char *) evn, "Global\\ngx_%s_%P%Z", sig, pid);
 
+    // 打开指定名称的全局事件对象
     ev = OpenEvent(EVENT_MODIFY_STATE, 0, evn);
     if (ev == NULL) {
+        // 如果打开事件对象失败，记录错误日志并返回 1
         ngx_log_error(NGX_LOG_ERR, cycle->log, ngx_errno,
                       "OpenEvent(\"%s\") failed", evn);
         return 1;
     }
 
+    // 触发事件，通知目标进程
     if (SetEvent(ev) == 0) {
+        // 如果触发事件失败，记录警告日志并设置返回值为 1
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       "SetEvent(\"%s\") failed", evn);
         rc = 1;
-
     } else {
+        // 如果触发事件成功，设置返回值为 0
         rc = 0;
     }
 
+    // 关闭事件句柄，释放资源
     ngx_close_handle(ev);
 
-    return rc;
+    return rc;  // 返回操作结果
 }
 
 

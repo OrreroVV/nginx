@@ -72,6 +72,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
     pool->log = log;
 
+    /* 创建cycle */
     cycle = ngx_pcalloc(pool, sizeof(ngx_cycle_t));
     if (cycle == NULL) {
         ngx_destroy_pool(pool);
@@ -82,13 +83,16 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     cycle->log = log;
     cycle->old_cycle = old_cycle;
 
+    // 初始化新 cycle，并从旧 cycle 中复制配置信息
     cycle->conf_prefix.len = old_cycle->conf_prefix.len;
     cycle->conf_prefix.data = ngx_pstrdup(pool, &old_cycle->conf_prefix);
     if (cycle->conf_prefix.data == NULL) {
+        // 如果内存分配失败，销毁内存池并返回 NULL
         ngx_destroy_pool(pool);
         return NULL;
     }
 
+    // 复制 prefix 配置
     cycle->prefix.len = old_cycle->prefix.len;
     cycle->prefix.data = ngx_pstrdup(pool, &old_cycle->prefix);
     if (cycle->prefix.data == NULL) {
@@ -96,32 +100,36 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 复制 error_log 配置
     cycle->error_log.len = old_cycle->error_log.len;
-    cycle->error_log.data = ngx_pnalloc(pool, old_cycle->error_log.len + 1);
+    cycle->error_log.data = ngx_pnalloc(pool, old_cycle->error_log.len + 1); // 分配内存
     if (cycle->error_log.data == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
     ngx_cpystrn(cycle->error_log.data, old_cycle->error_log.data,
-                old_cycle->error_log.len + 1);
+                old_cycle->error_log.len + 1); // 复制字符串内容
 
+    // 复制 conf_file 配置
     cycle->conf_file.len = old_cycle->conf_file.len;
-    cycle->conf_file.data = ngx_pnalloc(pool, old_cycle->conf_file.len + 1);
+    cycle->conf_file.data = ngx_pnalloc(pool, old_cycle->conf_file.len + 1); // 分配内存
     if (cycle->conf_file.data == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
     ngx_cpystrn(cycle->conf_file.data, old_cycle->conf_file.data,
-                old_cycle->conf_file.len + 1);
+                old_cycle->conf_file.len + 1); // 复制字符串内容
 
+    // 复制 conf_param 配置
     cycle->conf_param.len = old_cycle->conf_param.len;
-    cycle->conf_param.data = ngx_pstrdup(pool, &old_cycle->conf_param);
+    cycle->conf_param.data = ngx_pstrdup(pool, &old_cycle->conf_param); // 内存池中复制字符串
     if (cycle->conf_param.data == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
 
 
+    // 初始化路径数组
     n = old_cycle->paths.nelts ? old_cycle->paths.nelts : 10;
 
     if (ngx_array_init(&cycle->paths, pool, n, sizeof(ngx_path_t *))
@@ -131,9 +139,10 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 将路径数组的元素初始化为零
     ngx_memzero(cycle->paths.elts, n * sizeof(ngx_path_t *));
 
-
+    // 初始化配置转储数组
     if (ngx_array_init(&cycle->config_dump, pool, 1, sizeof(ngx_conf_dump_t))
         != NGX_OK)
     {
@@ -141,9 +150,11 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 初始化红黑树，用于存储配置转储
     ngx_rbtree_init(&cycle->config_dump_rbtree, &cycle->config_dump_sentinel,
                     ngx_str_rbtree_insert_value);
 
+    // 初始化打开文件列表的元素数量
     if (old_cycle->open_files.part.nelts) {
         n = old_cycle->open_files.part.nelts;
         for (part = old_cycle->open_files.part.next; part; part = part->next) {
@@ -154,6 +165,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         n = 20;
     }
 
+    // 初始化打开文件列表
     if (ngx_list_init(&cycle->open_files, pool, n, sizeof(ngx_open_file_t))
         != NGX_OK)
     {
@@ -161,7 +173,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
-
+    // 初始化共享内存列表的元素数量
     if (old_cycle->shared_memory.part.nelts) {
         n = old_cycle->shared_memory.part.nelts;
         for (part = old_cycle->shared_memory.part.next; part; part = part->next)
@@ -173,6 +185,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         n = 1;
     }
 
+    // 初始化共享内存列表
     if (ngx_list_init(&cycle->shared_memory, pool, n, sizeof(ngx_shm_zone_t))
         != NGX_OK)
     {
@@ -180,6 +193,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 初始化监听数组
     n = old_cycle->listening.nelts ? old_cycle->listening.nelts : 10;
 
     if (ngx_array_init(&cycle->listening, pool, n, sizeof(ngx_listening_t))
@@ -189,19 +203,20 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    // 将监听数组的元素初始化为零
     ngx_memzero(cycle->listening.elts, n * sizeof(ngx_listening_t));
 
-
+    // 初始化可重用连接队列
     ngx_queue_init(&cycle->reusable_connections_queue);
 
-
+    // 分配并初始化配置上下文数组
     cycle->conf_ctx = ngx_pcalloc(pool, ngx_max_module * sizeof(void *));
     if (cycle->conf_ctx == NULL) {
         ngx_destroy_pool(pool);
         return NULL;
     }
 
-
+    // 获取主机名
     if (gethostname(hostname, NGX_MAXHOSTNAMELEN) == -1) {
         ngx_log_error(NGX_LOG_EMERG, log, ngx_errno, "gethostname() failed");
         ngx_destroy_pool(pool);
@@ -1088,45 +1103,56 @@ ngx_delete_pidfile(ngx_cycle_t *cycle)
 ngx_int_t
 ngx_signal_process(ngx_cycle_t *cycle, char *sig)
 {
-    ssize_t           n;
-    ngx_pid_t         pid;
-    ngx_file_t        file;
-    ngx_core_conf_t  *ccf;
-    u_char            buf[NGX_INT64_LEN + 2];
+    ssize_t           n;                        // 读取文件的字节数
+    ngx_pid_t         pid;                      // 保存从 PID 文件中读取的主进程 PID
+    ngx_file_t        file;                     // 表示 PID 文件的结构体
+    ngx_core_conf_t  *ccf;                      // 核心模块的配置结构体
+    u_char            buf[NGX_INT64_LEN + 2];   // 用于存储从 PID 文件中读取的数据
 
+    // 记录一个日志信息，说明信号处理开始
     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "signal process started");
 
+    // 获取核心模块的配置，包含 PID 文件路径等信息
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
+    // 初始化 ngx_file_t 结构体，用于操作 PID 文件
     ngx_memzero(&file, sizeof(ngx_file_t));
 
-    file.name = ccf->pid;
-    file.log = cycle->log;
+    file.name = ccf->pid;   // PID 文件的路径
+    file.log = cycle->log;  // 设置日志指针，用于记录文件操作日志
 
+    // 打开 PID 文件，读取主进程的 PID
     file.fd = ngx_open_file(file.name.data, NGX_FILE_RDONLY,
                             NGX_FILE_OPEN, NGX_FILE_DEFAULT_ACCESS);
 
+    // 如果打开文件失败，记录错误日志并返回错误码 1
     if (file.fd == NGX_INVALID_FILE) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, ngx_errno,
                       ngx_open_file_n " \"%s\" failed", file.name.data);
         return 1;
     }
 
+    // 从 PID 文件中读取数据到缓冲区 buf，最多读取 NGX_INT64_LEN + 2 字节
     n = ngx_read_file(&file, buf, NGX_INT64_LEN + 2, 0);
 
+    // 关闭文件句柄，如果失败则记录错误日志
     if (ngx_close_file(file.fd) == NGX_FILE_ERROR) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       ngx_close_file_n " \"%s\" failed", file.name.data);
     }
 
+    // 如果读取文件失败，返回错误码 1
     if (n == NGX_ERROR) {
         return 1;
     }
 
+    // 去除读取数据中的换行符（CR 和 LF）
     while (n-- && (buf[n] == CR || buf[n] == LF)) { /* void */ }
 
+    // 将读取的内容转换为整数（PID）
     pid = ngx_atoi(buf, ++n);
 
+    // 如果转换失败，说明 PID 文件的内容无效，记录错误日志并返回 1
     if (pid == (ngx_pid_t) NGX_ERROR) {
         ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
                       "invalid PID number \"%*s\" in \"%s\"",
@@ -1134,8 +1160,8 @@ ngx_signal_process(ngx_cycle_t *cycle, char *sig)
         return 1;
     }
 
+    // 调用操作系统相关函数，向指定 PID 发送信号
     return ngx_os_signal_process(cycle, sig, pid);
-
 }
 
 

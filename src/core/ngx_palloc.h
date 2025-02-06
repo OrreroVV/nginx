@@ -75,6 +75,12 @@ typedef struct {
 } ngx_pool_cleanup_file_t;
 
 
+/**
+ * @brief 创建size大小的内存池
+ * @param size 
+ * @param log 
+ * @return ngx_pool_t* 
+ */
 ngx_pool_t *ngx_create_pool(size_t size, ngx_log_t *log);
 
 /**

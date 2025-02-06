@@ -180,14 +180,14 @@ ngx_module_t  ngx_core_module = {
 };
 
 
-static ngx_uint_t   ngx_show_help;
-static ngx_uint_t   ngx_show_version;
-static ngx_uint_t   ngx_show_configure;
-static u_char      *ngx_prefix;
-static u_char      *ngx_error_log;
-static u_char      *ngx_conf_file;
-static u_char      *ngx_conf_params;
-static char        *ngx_signal;
+static ngx_uint_t   ngx_show_help; //是否显示帮助信息
+static ngx_uint_t   ngx_show_version; //是否显示版本号
+static ngx_uint_t   ngx_show_configure; //是否显示配置信息
+static u_char      *ngx_prefix; //Nginx的工作目录
+static u_char      *ngx_error_log; //Nginx错误日志
+static u_char      *ngx_conf_file; //全局配置文件目录地址
+static u_char      *ngx_conf_params; //配置参数
+static char        *ngx_signal; //信号
 
 
 static char **ngx_os_environ;
@@ -209,6 +209,9 @@ main(int argc, char *const *argv)
         return 1;
     }
 
+    /**
+     * @brief 主要用于解析命令行中的参数
+     */
     if (ngx_get_options(argc, argv) != NGX_OK) {
         return 1;
     }
@@ -223,15 +226,20 @@ main(int argc, char *const *argv)
 
     /* TODO */ ngx_max_sockets = -1;
 
+    /**
+     * @brief 初始化时间
+     */
     ngx_time_init();
 
 #if (NGX_PCRE)
     ngx_regex_init();
 #endif
 
+    /* 获取当前进程的pid。一般pid会放在/usr/local/nginx-xx/nginx.pid的文件中，用于发送重启，关闭等信号命令。 */
     ngx_pid = ngx_getpid();
     ngx_parent = ngx_getppid();
 
+    /* 初始化日志，并得到日志的文件句柄ngx_log_file.fd */
     log = ngx_log_init(ngx_prefix, ngx_error_log);
     if (log == NULL) {
         return 1;
@@ -251,19 +259,27 @@ main(int argc, char *const *argv)
     init_cycle.log = log;
     ngx_cycle = &init_cycle;
 
+    /**
+     * @brief 先创建1024大小的内存池，临时内存池，用来初始化，
+     */
     init_cycle.pool = ngx_create_pool(1024, log);
     if (init_cycle.pool == NULL) {
         return 1;
     }
 
+    /**
+     * @brief 保存Nginx命令行中的参数和变量,放到全局变量ngx_argv
+     */
     if (ngx_save_argv(&init_cycle, argc, argv) != NGX_OK) {
         return 1;
     }
 
+    /* 将ngx_get_options中获得这些参数取值赋值到ngx_cycle中。prefix, conf_prefix, conf_file, conf_param等字段。 */
     if (ngx_process_options(&init_cycle) != NGX_OK) {
         return 1;
     }
 
+    /* 初始化系统相关变量，如内存页面大小ngx_pagesize,ngx_cacheline_size,最大连接数ngx_max_sockets等 */
     if (ngx_os_init(log) != NGX_OK) {
         return 1;
     }
@@ -271,7 +287,7 @@ main(int argc, char *const *argv)
     /*
      * ngx_crc32_table_init() requires ngx_cacheline_size set in ngx_os_init()
      */
-
+    /* 初始化一致性hash表，主要作用是加快查询 */
     if (ngx_crc32_table_init() != NGX_OK) {
         return 1;
     }
@@ -282,10 +298,12 @@ main(int argc, char *const *argv)
 
     ngx_slab_sizes_init();
 
+    /* ngx_add_inherited_sockets主要是继承了socket的套接字。主要作用是热启动的时候需要平滑过渡 */
     if (ngx_add_inherited_sockets(&init_cycle) != NGX_OK) {
         return 1;
     }
 
+    /* 初始化所有模块，给每个模块打上标记 */
     if (ngx_preinit_modules() != NGX_OK) {
         return 1;
     }
@@ -326,6 +344,7 @@ main(int argc, char *const *argv)
         return 0;
     }
 
+    /* 信号处理 */
     if (ngx_signal) {
         return ngx_signal_process(cycle, ngx_signal);
     }
@@ -360,6 +379,7 @@ main(int argc, char *const *argv)
 
 #endif
 
+    /* 创建PID文件 */
     if (ngx_create_pidfile(&ccf->pid, cycle->log) != NGX_OK) {
         return 1;
     }
@@ -459,19 +479,23 @@ ngx_show_version_info(void)
 static ngx_int_t
 ngx_add_inherited_sockets(ngx_cycle_t *cycle)
 {
-    u_char           *p, *v, *inherited;
-    ngx_int_t         s;
-    ngx_listening_t  *ls;
+    u_char           *p, *v, *inherited;  // 环境变量字符串相关的指针
+    ngx_int_t         s;                  // 用于存储从字符串解析出的套接字描述符
+    ngx_listening_t  *ls;                 // 用于存储监听套接字的结构体
 
+    // 从环境变量 NGINX_VAR 中获取继承的套接字描述符
     inherited = (u_char *) getenv(NGINX_VAR);
 
     if (inherited == NULL) {
+        // 如果没有继承套接字，直接返回成功
         return NGX_OK;
     }
 
+    // 记录日志，说明正在使用继承的套接字
     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
                   "using inherited sockets from \"%s\"", inherited);
 
+    // 初始化 cycle->listening 数组，用于存储监听套接字
     if (ngx_array_init(&cycle->listening, cycle->pool, 10,
                        sizeof(ngx_listening_t))
         != NGX_OK)
@@ -479,10 +503,13 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
         return NGX_ERROR;
     }
 
+    // 遍历 inherited 环境变量中的套接字描述符
     for (p = inherited, v = p; *p; p++) {
         if (*p == ':' || *p == ';') {
+            // 解析一个套接字描述符
             s = ngx_atoi(v, p - v);
             if (s == NGX_ERROR) {
+                // 如果解析失败，记录错误日志并停止解析
                 ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                               "invalid socket number \"%s\" in " NGINX_VAR
                               " environment variable, ignoring the rest"
@@ -490,28 +517,35 @@ ngx_add_inherited_sockets(ngx_cycle_t *cycle)
                 break;
             }
 
+            // 更新下一个套接字的起始位置
             v = p + 1;
 
+            // 为新的监听结构体分配空间
             ls = ngx_array_push(&cycle->listening);
             if (ls == NULL) {
                 return NGX_ERROR;
             }
 
+            // 清空监听结构体
             ngx_memzero(ls, sizeof(ngx_listening_t));
 
+            // 设置监听结构体的 fd 和继承标志
             ls->fd = (ngx_socket_t) s;
             ls->inherited = 1;
         }
     }
 
+    // 如果剩余未解析的部分不为空，记录错误日志
     if (v != p) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
                       "invalid socket number \"%s\" in " NGINX_VAR
                       " environment variable, ignoring", v);
     }
 
+    // 设置全局继承标志
     ngx_inherited = 1;
 
+    // 调用 ngx_set_inherited_sockets 配置继承的套接字
     return ngx_set_inherited_sockets(cycle);
 }
 

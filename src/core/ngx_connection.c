@@ -151,27 +151,34 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
     int                        reuseport;
 #endif
 
+    // 获取监听数组的首地址
     ls = cycle->listening.elts;
+
+    // 遍历所有监听的套接字
     for (i = 0; i < cycle->listening.nelts; i++) {
 
+        // 为 sockaddr 分配内存空间
         ls[i].sockaddr = ngx_palloc(cycle->pool, sizeof(ngx_sockaddr_t));
         if (ls[i].sockaddr == NULL) {
-            return NGX_ERROR;
+            return NGX_ERROR; // 如果分配失败，返回错误
         }
 
         ls[i].socklen = sizeof(ngx_sockaddr_t);
+        // 获取套接字绑定的地址和端口信息
         if (getsockname(ls[i].fd, ls[i].sockaddr, &ls[i].socklen) == -1) {
             ngx_log_error(NGX_LOG_CRIT, cycle->log, ngx_socket_errno,
                           "getsockname() of the inherited "
                           "socket #%d failed", ls[i].fd);
-            ls[i].ignore = 1;
+            ls[i].ignore = 1; // 标记为忽略此套接字
             continue;
         }
 
+        // 防止 socklen 超出分配的结构大小
         if (ls[i].socklen > (socklen_t) sizeof(ngx_sockaddr_t)) {
             ls[i].socklen = sizeof(ngx_sockaddr_t);
         }
 
+        // 根据套接字的地址族（AF_INET、AF_INET6、AF_UNIX）设置最大地址文本长度
         switch (ls[i].sockaddr->sa_family) {
 
 #if (NGX_HAVE_INET6)
@@ -197,15 +204,17 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
             ngx_log_error(NGX_LOG_CRIT, cycle->log, ngx_socket_errno,
                           "the inherited socket #%d has "
                           "an unsupported protocol family", ls[i].fd);
-            ls[i].ignore = 1;
+            ls[i].ignore = 1; // 标记为忽略此套接字
             continue;
         }
 
+        // 分配地址文本空间
         ls[i].addr_text.data = ngx_pnalloc(cycle->pool, len);
         if (ls[i].addr_text.data == NULL) {
             return NGX_ERROR;
         }
 
+        // 将 sockaddr 转换为字符串形式并存储到 addr_text 中
         len = ngx_sock_ntop(ls[i].sockaddr, ls[i].socklen,
                             ls[i].addr_text.data, len, 1);
         if (len == 0) {
@@ -214,10 +223,12 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
         ls[i].addr_text.len = len;
 
+        // 设置监听队列长度
         ls[i].backlog = NGX_LISTEN_BACKLOG;
 
         olen = sizeof(int);
 
+        // 获取套接字的类型（如 SOCK_STREAM 或 SOCK_DGRAM）
         if (getsockopt(ls[i].fd, SOL_SOCKET, SO_TYPE, (void *) &ls[i].type,
                        &olen)
             == -1)
@@ -230,6 +241,7 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
         olen = sizeof(int);
 
+        // 获取接收缓冲区大小（SO_RCVBUF）
         if (getsockopt(ls[i].fd, SOL_SOCKET, SO_RCVBUF, (void *) &ls[i].rcvbuf,
                        &olen)
             == -1)
@@ -238,11 +250,12 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
                           "getsockopt(SO_RCVBUF) %V failed, ignored",
                           &ls[i].addr_text);
 
-            ls[i].rcvbuf = -1;
+            ls[i].rcvbuf = -1; // 设置默认值
         }
 
         olen = sizeof(int);
 
+        // 获取发送缓冲区大小（SO_SNDBUF）
         if (getsockopt(ls[i].fd, SOL_SOCKET, SO_SNDBUF, (void *) &ls[i].sndbuf,
                        &olen)
             == -1)
@@ -251,32 +264,11 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
                           "getsockopt(SO_SNDBUF) %V failed, ignored",
                           &ls[i].addr_text);
 
-            ls[i].sndbuf = -1;
+            ls[i].sndbuf = -1; // 设置默认值
         }
-
-#if 0
-        /* SO_SETFIB is currently a set only option */
-
-#if (NGX_HAVE_SETFIB)
-
-        olen = sizeof(int);
-
-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_SETFIB,
-                       (void *) &ls[i].setfib, &olen)
-            == -1)
-        {
-            ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_socket_errno,
-                          "getsockopt(SO_SETFIB) %V failed, ignored",
-                          &ls[i].addr_text);
-
-            ls[i].setfib = -1;
-        }
-
-#endif
-#endif
 
 #if (NGX_HAVE_REUSEPORT)
-
+        // 检查 SO_REUSEPORT 选项是否启用
         reuseport = 0;
         olen = sizeof(int);
 
@@ -311,12 +303,13 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
 #endif
 
+        // 如果套接字不是 TCP 流，跳过剩余配置
         if (ls[i].type != SOCK_STREAM) {
             continue;
         }
 
 #if (NGX_HAVE_TCP_FASTOPEN)
-
+        // 检查 TCP_FASTOPEN 配置
         olen = sizeof(int);
 
         if (getsockopt(ls[i].fd, IPPROTO_TCP, TCP_FASTOPEN,
@@ -338,41 +331,8 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
 
 #endif
 
-#if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
-
-        ngx_memzero(&af, sizeof(struct accept_filter_arg));
-        olen = sizeof(struct accept_filter_arg);
-
-        if (getsockopt(ls[i].fd, SOL_SOCKET, SO_ACCEPTFILTER, &af, &olen)
-            == -1)
-        {
-            err = ngx_socket_errno;
-
-            if (err == NGX_EINVAL) {
-                continue;
-            }
-
-            ngx_log_error(NGX_LOG_NOTICE, cycle->log, err,
-                          "getsockopt(SO_ACCEPTFILTER) for %V failed, ignored",
-                          &ls[i].addr_text);
-            continue;
-        }
-
-        if (olen < sizeof(struct accept_filter_arg) || af.af_name[0] == '\0') {
-            continue;
-        }
-
-        ls[i].accept_filter = ngx_palloc(cycle->pool, 16);
-        if (ls[i].accept_filter == NULL) {
-            return NGX_ERROR;
-        }
-
-        (void) ngx_cpystrn((u_char *) ls[i].accept_filter,
-                           (u_char *) af.af_name, 16);
-#endif
-
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined TCP_DEFER_ACCEPT)
-
+        // 检查 TCP_DEFER_ACCEPT 配置
         timeout = 0;
         olen = sizeof(int);
 
@@ -395,12 +355,13 @@ ngx_set_inherited_sockets(ngx_cycle_t *cycle)
             continue;
         }
 
-        ls[i].deferred_accept = 1;
+        ls[i].deferred_accept = 1; // 启用延迟接受标志
 #endif
     }
 
-    return NGX_OK;
+    return NGX_OK; // 所有套接字初始化成功
 }
+
 
 
 ngx_int_t

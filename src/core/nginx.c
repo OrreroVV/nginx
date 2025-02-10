@@ -156,7 +156,11 @@ static ngx_command_t  ngx_core_commands[] = {
       ngx_null_command
 };
 
-
+/**
+ * 核心模块配置文件
+ * ngx_core_module_create_conf 核心模块创建配置文件
+ * ngx_core_module_init_conf 核心模块初始化配置文件
+ */
 static ngx_core_module_t  ngx_core_module_ctx = {
     ngx_string("core"),
     ngx_core_module_create_conf,
@@ -303,7 +307,9 @@ main(int argc, char *const *argv)
         return 1;
     }
 
-    /* 初始化所有模块，给每个模块打上标记 */
+    /** 初始化所有模块，给每个模块打上标记
+        具体的模块可通过编译前的configure命令进行配置，即设置哪些模块需要编译，哪些不被编译。当编译的时候，会生成ngx_modules.c的文件，里面就包含模块数组
+        新增模块或者减少模块可以在configure命令执行前 auto/modules文件里面修改 */
     if (ngx_preinit_modules() != NGX_OK) {
         return 1;
     }

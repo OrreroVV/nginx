@@ -237,6 +237,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     ngx_strlow(cycle->hostname.data, (u_char *) hostname, cycle->hostname.len);
 
 
+    /* 初始化cycle->modules[] */
     if (ngx_cycle_modules(cycle) != NGX_OK) {
         ngx_destroy_pool(pool);
         return NULL;
@@ -251,6 +252,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         module = cycle->modules[i]->ctx;
 
         if (module->create_conf) {
+            /* 调用ngx_core_module_create_conf */
             rv = module->create_conf(cycle);
             if (rv == NULL) {
                 ngx_destroy_pool(pool);
@@ -264,6 +266,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     senv = environ;
 
 
+    /* 开始解析配置文件 */
     ngx_memzero(&conf, sizeof(ngx_conf_t));
     /* STUB: init array ? */
     conf.args = ngx_array_create(pool, 10, sizeof(ngx_str_t));
@@ -272,6 +275,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return NULL;
     }
 
+    /* 创建一个临时的内存池，后面会清空掉;conf也主要用于解析配置文件的临时变量 */
     conf.temp_pool = ngx_create_pool(NGX_CYCLE_POOL_SIZE, log);
     if (conf.temp_pool == NULL) {
         ngx_destroy_pool(pool);
@@ -290,12 +294,15 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     log->log_level = NGX_LOG_DEBUG_ALL;
 #endif
 
+    /* 解析命令行中的配置参数；例如：nginx -t -c /usr/local/nginx/conf/nginx.conf */
     if (ngx_conf_param(&conf) != NGX_CONF_OK) {
         environ = senv;
         ngx_destroy_cycle_pools(&conf);
         return NULL;
     }
 
+    
+    /* 解析配置文件/usr/local/nginx/conf/nginx.conf 信息 */
     if (ngx_conf_parse(&conf, &cycle->conf_file) != NGX_CONF_OK) {
         environ = senv;
         ngx_destroy_cycle_pools(&conf);
@@ -330,8 +337,11 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         return cycle;
     }
 
+    /* 获取核心配置文件的数据结构 ngx_core_conf_t */
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
+
+    /* Nginx将PID写入文件内，"/home/hzh/workspace/nginx/bin/logs/nginx.pid"，后续对Nginx进行重启、停止、信号操作就可以使用这个PID */
     if (ngx_test_config) {
 
         if (ngx_create_pidfile(&ccf->pid, log) != NGX_OK) {
@@ -370,13 +380,14 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         goto failed;
     }
 
-
+    /* 打开日志，并调用ngx_conf_open_file方法，会将打开的文件放到cycle->open_files链表中 主要是日志文件和配置文件*/
     if (ngx_log_open_default(cycle) != NGX_OK) {
         goto failed;
     }
 
     /* open the new files */
 
+    /* 遍历cycle->open_files链表中的文件，并打开 */
     part = &cycle->open_files.part;
     file = part->elts;
 
@@ -395,6 +406,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
             continue;
         }
 
+        // 打开文件，获取文件描述符
         file[i].fd = ngx_open_file(file[i].name.data,
                                    NGX_FILE_APPEND,
                                    NGX_FILE_CREATE_OR_OPEN,
@@ -426,7 +438,11 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 
 
     /* create shared memory */
-
+    /**
+     * @brief 新旧shared_memory链表的比较，相同的共享内存保留，旧的不同的共享内存被释放，新的被创建
+     * part 为cycle（新）
+     * shm_zone（旧）
+     */
     part = &cycle->shared_memory.part;
     shm_zone = part->elts;
 
@@ -455,6 +471,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 
         data = NULL;
 
+        /* 在旧配置中查找匹配的共享内存区域 */
         for (n = 0; /* void */ ; n++) {
 
             if (n >= opart->nelts) {
@@ -465,7 +482,8 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 oshm_zone = opart->elts;
                 n = 0;
             }
-
+            
+            /* 比较共享内存区域名称（匹配新旧区域） */
             if (shm_zone[i].shm.name.len != oshm_zone[n].shm.name.len) {
                 continue;
             }
@@ -478,6 +496,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 continue;
             }
 
+            /* 根据标志和大小决定如何复用或初始化共享内存 */
             if (shm_zone[i].tag == oshm_zone[n].tag && shm_zone[i].noreuse) {
                 data = oshm_zone[n].data;
                 break;
@@ -503,6 +522,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
             break;
         }
 
+        /* 当没有找到可复用的旧共享内存时，分配并初始化新的共享内存区域 */
         if (ngx_shm_alloc(&shm_zone[i].shm) != NGX_OK) {
             goto failed;
         }
@@ -523,15 +543,18 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 
     /* handle the listening sockets */
 
+    /* 处理listening数组，并开始监听socket */
     if (old_cycle->listening.nelts) {
         ls = old_cycle->listening.elts;
+        /* 这里的 remain 标志用于标记该旧监听项是否已在新配置中被匹配使用，初始时全部设置为 0，表示尚未匹配 */
         for (i = 0; i < old_cycle->listening.nelts; i++) {
             ls[i].remain = 0;
         }
 
         nls = cycle->listening.elts;
+        /* 对每个新监听项（下标为 n）进行处理，试图在旧监听数组中找到匹配的项 */
         for (n = 0; n < cycle->listening.nelts; n++) {
-
+            /* 匹配新旧监听套接字 */
             for (i = 0; i < old_cycle->listening.nelts; i++) {
                 if (ls[i].ignore) {
                     continue;
@@ -544,20 +567,24 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 if (ls[i].type != nls[n].type) {
                     continue;
                 }
-
+                
+                /* 调用 ngx_cmp_sockaddr 函数比较新旧监听项的 socket 地址（sockaddr 和 socklen），如果返回 NGX_OK 表示地址匹配，则认为找到了对应的旧监听项 */
                 if (ngx_cmp_sockaddr(nls[n].sockaddr, nls[n].socklen,
                                      ls[i].sockaddr, ls[i].socklen, 1)
                     == NGX_OK)
                 {
+                    /* 如果匹配上的话 */
                     nls[n].fd = ls[i].fd;
                     nls[n].inherited = ls[i].inherited;
                     nls[n].previous = &ls[i];
                     ls[i].remain = 1;
 
+                    /* 如果旧监听项的 backlog 值与新配置的不一致，说明监听队列长度设置发生了变化，此时需要重新调用 listen() 系统调用，以便更新套接字的监听状态，因此将新监听项的 listen 标志置为 1 */
                     if (ls[i].backlog != nls[n].backlog) {
                         nls[n].listen = 1;
                     }
 
+                    /* 针对延迟接收（deferred accept）和接受过滤（accept filter）的特殊处理 */
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
 
                     /*
@@ -583,6 +610,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                     }
 #endif
 
+                    /* 使用 TCP_DEFER_ACCEPT（通常用于 Linux） */
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined TCP_DEFER_ACCEPT)
 
                     if (ls[i].deferred_accept && !nls[n].deferred_accept) {
@@ -593,7 +621,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                         nls[n].add_deferred = 1;
                     }
 #endif
-
+                    /* REUSEPORT 选项, 如果新监听项启用了 reuseport 而旧监听项没有，则标记新监听项需要添加 REUSEPORT 设置。 */
 #if (NGX_HAVE_REUSEPORT)
                     if (nls[n].reuseport && !ls[i].reuseport) {
                         nls[n].add_reuseport = 1;
@@ -604,6 +632,9 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
                 }
             }
 
+            /* 处理未匹配到旧监听项的情况 */
+
+            /* 如果新监听项的 fd 仍然是 -1，说明没有在旧监听数组中找到匹配项，此时将新监听项标记为 open，后续会新建这个套接字 */
             if (nls[n].fd == (ngx_socket_t) -1) {
                 nls[n].open = 1;
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
@@ -619,8 +650,9 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
             }
         }
 
-    } else {
+    } else {//旧配置不存在监听套接字
         ls = cycle->listening.elts;
+        /* 遍历新配置中的所有监听项，将每一项的 open 标志设置为 1，表示后续需要创建新的监听套接字 */
         for (i = 0; i < cycle->listening.nelts; i++) {
             ls[i].open = 1;
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
@@ -636,6 +668,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
         }
     }
 
+    /* 监听需要监听的listening */
     if (ngx_open_listening_sockets(cycle) != NGX_OK) {
         goto failed;
     }
@@ -652,7 +685,8 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
     }
 
     pool->log = cycle->log;
-
+    
+    /* 调用每个模块的初始化函数 */
     if (ngx_init_modules(cycle) != NGX_OK) {
         /* fatal */
         exit(1);
@@ -663,6 +697,7 @@ ngx_init_cycle(ngx_cycle_t *old_cycle)
 
     /* free the unnecessary shared memory */
 
+    /* 释放不必要的共享内存 */
     opart = &old_cycle->shared_memory.part;
     oshm_zone = opart->elts;
 

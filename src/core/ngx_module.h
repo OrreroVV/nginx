@@ -223,45 +223,50 @@
 
 #define NGX_MODULE_V1_PADDING  0, 0, 0, 0, 0, 0, 0, 0
 
-
+/**
+ * @brief 结构体ngx_module_s主要用于管理每一个模块的详细信息。
+    Nginx的所有模块会放置在全局变量cycle的cycle->modules 模块数组
+ */
 struct ngx_module_s {
-    ngx_uint_t            ctx_index;
-    ngx_uint_t            index;
+    ngx_uint_t            ctx_index;           // 模块的上下文索引
+    ngx_uint_t            index;               // 模块在 Nginx 中的索引（位置）
 
-    char                 *name;
+    char                 *name;                // 模块的名称
 
-    ngx_uint_t            spare0;
-    ngx_uint_t            spare1;
+    ngx_uint_t            spare0;              // 预留字段
+    ngx_uint_t            spare1;              // 预留字段
 
-    ngx_uint_t            version;
-    const char           *signature;
+    ngx_uint_t            version;             // 模块的版本
+    const char           *signature;           // 模块的签名（用于验证模块）
 
-    void                 *ctx;
-    ngx_command_t        *commands;
-    ngx_uint_t            type;
+    void                 *ctx;                 // 模块的上下文指针
+    ngx_command_t        *commands;            // 模块配置指令数组
 
-    ngx_int_t           (*init_master)(ngx_log_t *log);
+    ngx_uint_t            type;                // 模块的类型（例如 HTTP 模块、事件模块等）
 
-    ngx_int_t           (*init_module)(ngx_cycle_t *cycle);
+    ngx_int_t           (*init_master)(ngx_log_t *log);      // 初始化主进程的回调函数
+    ngx_int_t           (*init_module)(ngx_cycle_t *cycle); // 初始化模块的回调函数
+    ngx_int_t           (*init_process)(ngx_cycle_t *cycle); // 初始化进程的回调函数
+    ngx_int_t           (*init_thread)(ngx_cycle_t *cycle);  // 初始化线程的回调函数
+    void                (*exit_thread)(ngx_cycle_t *cycle);  // 线程退出的回调函数
+    void                (*exit_process)(ngx_cycle_t *cycle); // 进程退出的回调函数
+    void                (*exit_master)(ngx_cycle_t *cycle);  // 主进程退出的回调函数
 
-    ngx_int_t           (*init_process)(ngx_cycle_t *cycle);
-    ngx_int_t           (*init_thread)(ngx_cycle_t *cycle);
-    void                (*exit_thread)(ngx_cycle_t *cycle);
-    void                (*exit_process)(ngx_cycle_t *cycle);
-
-    void                (*exit_master)(ngx_cycle_t *cycle);
-
-    uintptr_t             spare_hook0;
-    uintptr_t             spare_hook1;
-    uintptr_t             spare_hook2;
-    uintptr_t             spare_hook3;
-    uintptr_t             spare_hook4;
-    uintptr_t             spare_hook5;
-    uintptr_t             spare_hook6;
-    uintptr_t             spare_hook7;
+    uintptr_t             spare_hook0;         // 预留钩子
+    uintptr_t             spare_hook1;         // 预留钩子
+    uintptr_t             spare_hook2;         // 预留钩子
+    uintptr_t             spare_hook3;         // 预留钩子
+    uintptr_t             spare_hook4;         // 预留钩子
+    uintptr_t             spare_hook5;         // 预留钩子
+    uintptr_t             spare_hook6;         // 预留钩子
+    uintptr_t             spare_hook7;         // 预留钩子
 };
 
 
+/**
+ * 核心模块core数据结构
+ * ngx_module_s->ctx 核心模块的上下文，主要定义了创建配置和初始化配置的结构
+ */
 typedef struct {
     ngx_str_t             name;
     void               *(*create_conf)(ngx_cycle_t *cycle);
@@ -272,6 +277,9 @@ typedef struct {
 ngx_int_t ngx_preinit_modules(void);
 ngx_int_t ngx_cycle_modules(ngx_cycle_t *cycle);
 ngx_int_t ngx_init_modules(ngx_cycle_t *cycle);
+/**
+ * 统计每个类型下面总共多少个模块
+ */
 ngx_int_t ngx_count_modules(ngx_cycle_t *cycle, ngx_uint_t type);
 
 
@@ -279,6 +287,7 @@ ngx_int_t ngx_add_module(ngx_conf_t *cf, ngx_str_t *file,
     ngx_module_t *module, char **order);
 
 
+/* 模块数组，所有的模块都会保存在此数组中   共有四种类型模块："CORE","CONF","EVNT","HTTP" */
 extern ngx_module_t  *ngx_modules[];
 extern ngx_uint_t     ngx_max_module;
 

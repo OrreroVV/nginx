@@ -30,9 +30,13 @@ int              ngx_argc;
 char           **ngx_argv;
 char           **ngx_os_argv;
 
+/* 用于记录当前正在操作的进程槽位（slot）。ngx_process_slot 表示当前正在操作的 ngx_processes 数组中的索引位置 */
 ngx_int_t        ngx_process_slot;
+/* 用于进程间通信的套接字（socket）描述符。这个套接字通常是一个通过 socketpair() 创建的 UNIX 域套接字对，它用于父进程和子进程之间进行双向通信 */
 ngx_socket_t     ngx_channel;
+/* 记录已经创建的进程的最大索引。它表示当前管理的进程数组 ngx_processes 中的最后一个进程槽位 */
 ngx_int_t        ngx_last_process;
+/* 该数组存储了所有子进程的信息，每个子进程的信息包括 PID、状态、通信通道、执行函数、相关数据等 */
 ngx_process_t    ngx_processes[NGX_MAX_PROCESSES];
 
 
@@ -95,6 +99,8 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
         s = respawn;
 
     } else {
+        /*  如果 respawn 小于零，则会遍历现有的进程槽（ngx_processes 数组），查找空闲的槽位。如果找不到空槽，则会返回错误（NGX_INVALID_PID），表示无法再创建新进程。
+            ngx_last_process 变量限制了最大进程数量，若达到了最大限制，则不能继续创建新进程。 */
         for (s = 0; s < ngx_last_process; s++) {
             if (ngx_processes[s].pid == -1) {
                 break;
@@ -114,6 +120,8 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
 
         /* Solaris 9 still has no AF_LOCAL */
 
+        /*  使用 socketpair(AF_UNIX, SOCK_STREAM, 0, ngx_processes[s].channel) 创建一个 UNIX 域套接字对，这种套接字对常用于父子进程之间的通信。
+            ngx_processes[s].channel[0] 和 ngx_processes[s].channel[1] 分别保存套接字对的两个端点。 */
         if (socketpair(AF_UNIX, SOCK_STREAM, 0, ngx_processes[s].channel) == -1)
         {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
@@ -125,7 +133,8 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
                        "channel %d:%d",
                        ngx_processes[s].channel[0],
                        ngx_processes[s].channel[1]);
-
+        
+        /* 调用 ngx_nonblocking 将两个套接字设置为非阻塞模式，这样可以避免在通信时被阻塞。 */
         if (ngx_nonblocking(ngx_processes[s].channel[0]) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           ngx_nonblocking_n " failed while spawning \"%s\"",
@@ -143,6 +152,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
         }
 
         on = 1;
+        /* 使用 ioctl(FIOASYNC) 设置第一个套接字为异步模式，允许该套接字发出信号通知。 */
         if (ioctl(ngx_processes[s].channel[0], FIOASYNC, &on) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "ioctl(FIOASYNC) failed while spawning \"%s\"", name);
@@ -150,6 +160,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
             return NGX_INVALID_PID;
         }
 
+        /* 使用 fcntl(F_SETOWN, ngx_pid) 将第一个套接字的所有者设置为当前进程，这样进程就可以接收来自该套接字的信号。 */
         if (fcntl(ngx_processes[s].channel[0], F_SETOWN, ngx_pid) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "fcntl(F_SETOWN) failed while spawning \"%s\"", name);
@@ -157,6 +168,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
             return NGX_INVALID_PID;
         }
 
+        /* 使用 fcntl(FD_CLOEXEC) 设置套接字在进程执行 exec() 时会自动关闭，避免不必要的文件描述符泄漏。 */
         if (fcntl(ngx_processes[s].channel[0], F_SETFD, FD_CLOEXEC) == -1) {
             ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                           "fcntl(FD_CLOEXEC) failed while spawning \"%s\"",
@@ -176,6 +188,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
         ngx_channel = ngx_processes[s].channel[1];
 
     } else {
+        /* 如果进程是“分离”模式（respawn == NGX_PROCESS_DETACHED), 则不创建通道 */
         ngx_processes[s].channel[0] = -1;
         ngx_processes[s].channel[1] = -1;
     }
@@ -195,7 +208,8 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
 
     case 0:
         ngx_parent = ngx_pid;
-        ngx_pid = ngx_getpid();
+        ngx_pid = ngx_getpid(); 
+        /* 如果pid fork成功，则调用 ngx_worker_process_cycle方法 */
         proc(cycle, data);
         break;
 
@@ -205,6 +219,7 @@ ngx_spawn_process(ngx_cycle_t *cycle, ngx_spawn_proc_pt proc, void *data,
 
     ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "start %s %P", name, pid);
 
+    /* 记录子进程的情况 */
     ngx_processes[s].pid = pid;
     ngx_processes[s].exited = 0;
 

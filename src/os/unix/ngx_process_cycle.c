@@ -19,6 +19,12 @@ static void ngx_pass_open_channel(ngx_cycle_t *cycle);
 static void ngx_signal_worker_processes(ngx_cycle_t *cycle, int signo);
 static ngx_uint_t ngx_reap_children(ngx_cycle_t *cycle);
 static void ngx_master_process_exit(ngx_cycle_t *cycle);
+/**
+ * @brief 工作进程处理
+ * @param cycle 
+ * @param data 
+ * @return * void 
+ */
 static void ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data);
 static void ngx_worker_process_init(ngx_cycle_t *cycle, ngx_int_t worker);
 static void ngx_worker_process_exit(ngx_cycle_t *cycle);
@@ -84,7 +90,25 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     ngx_msec_t         delay;
     ngx_core_conf_t   *ccf;
 
+    /* sigemptyset 用于将传入的信号集 set 清空，即初始化为空集。 */
     sigemptyset(&set);
+
+    /**
+     * @brief 向信号集中添加信号
+     * 
+     * 
+    *   SIGCHLD：当子进程结束或停止时，父进程会收到该信号。阻塞 SIGCHLD 可以防止进程在子进程退出时中断正常流程，通常会配合 wait 系列函数来处理子进程状态。
+        SIGALRM：定时器信号，用于定时任务或超时处理。阻塞该信号可防止定时器中断当前操作。
+        SIGIO：与异步 I/O 操作相关的信号，用于通知 I/O 事件的发生。阻塞它有助于控制 I/O 事件的处理时机。
+        SIGINT：中断信号（如 Ctrl+C 产生），阻塞该信号可以避免在关键操作中被用户中断。
+        NGX_RECONFIGURE_SIGNAL：重新加载配置的信号，通常用于平滑重启时让进程重新加载配置文件。
+        NGX_REOPEN_SIGNAL：重新打开日志文件的信号，通常用于日志切割或日志重新打开。
+        NGX_NOACCEPT_SIGNAL：控制停止接受新连接的信号，用于平滑关机时停止接受新请求。
+        NGX_TERMINATE_SIGNAL：终止进程的信号，通常对应于 SIGTERM，用于优雅关闭进程。
+        NGX_SHUTDOWN_SIGNAL：用于关闭进程或关闭服务的信号，可能与 SIGQUIT 或其它信号有关。
+        NGX_CHANGEBIN_SIGNAL：热升级时通知进程加载新二进制文件的信号。
+     * 
+     */
     sigaddset(&set, SIGCHLD);
     sigaddset(&set, SIGALRM);
     sigaddset(&set, SIGIO);
@@ -96,6 +120,8 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     sigaddset(&set, ngx_signal_value(NGX_SHUTDOWN_SIGNAL));
     sigaddset(&set, ngx_signal_value(NGX_CHANGEBIN_SIGNAL));
 
+
+    /* 阻塞这些信号后，在它们被解除屏蔽之前，这些信号将不会被传递给进程，也就是说，在进程处于关键阶段时（例如初始化、fork 前或其他敏感操作），可以防止信号处理函数被中断执行。 */
     if (sigprocmask(SIG_BLOCK, &set, NULL) == -1) {
         ngx_log_error(NGX_LOG_ALERT, cycle->log, ngx_errno,
                       "sigprocmask() failed");
@@ -120,13 +146,14 @@ ngx_master_process_cycle(ngx_cycle_t *cycle)
     for (i = 0; i < ngx_argc; i++) {
         *p++ = ' ';
         p = ngx_cpystrn(p, (u_char *) ngx_argv[i], size);
-    }
+    } 
 
     ngx_setproctitle(title);
 
 
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
 
+    /* 启动工作进程 - 多进程启动的核心函数 */
     ngx_start_worker_processes(cycle, ccf->worker_processes,
                                NGX_PROCESS_RESPAWN);
     ngx_start_cache_manager_processes(cycle, 0);
@@ -395,32 +422,37 @@ ngx_start_cache_manager_processes(ngx_cycle_t *cycle, ngx_uint_t respawn)
 static void
 ngx_pass_open_channel(ngx_cycle_t *cycle)
 {
-    ngx_int_t      i;
-    ngx_channel_t  ch;
+    ngx_int_t      i;                     // 用于循环遍历进程数组的索引
+    ngx_channel_t  ch;                    // 用于存储要传递的通道信息
 
-    ngx_memzero(&ch, sizeof(ngx_channel_t));
+    ngx_memzero(&ch, sizeof(ngx_channel_t));  // 清空 ch 结构体，确保它没有被垃圾数据影响
 
-    ch.command = NGX_CMD_OPEN_CHANNEL;
-    ch.pid = ngx_processes[ngx_process_slot].pid;
-    ch.slot = ngx_process_slot;
-    ch.fd = ngx_processes[ngx_process_slot].channel[0];
+    // 填充通道信息
+    ch.command = NGX_CMD_OPEN_CHANNEL;   // 设置通道命令为打开通道
+    ch.pid = ngx_processes[ngx_process_slot].pid;  // 设置当前进程的 PID
+    ch.slot = ngx_process_slot;                  // 设置当前进程在进程数组中的槽位
+    ch.fd = ngx_processes[ngx_process_slot].channel[0];  // 设置当前进程的通信通道的文件描述符
 
+    // 遍历所有进程，将通道信息传递给其他进程
     for (i = 0; i < ngx_last_process; i++) {
 
+        // 跳过当前进程、已退出的进程或没有有效通道的进程
         if (i == ngx_process_slot
-            || ngx_processes[i].pid == -1
-            || ngx_processes[i].channel[0] == -1)
-        {
+            || ngx_processes[i].pid == -1                // 如果该进程已退出（PID为-1）
+            || ngx_processes[i].channel[0] == -1) {      // 如果该进程没有有效的通道
             continue;
         }
 
+        // 打印调试信息，记录将通道信息传递给哪个进程
         ngx_log_debug6(NGX_LOG_DEBUG_CORE, cycle->log, 0,
                       "pass channel s:%i pid:%P fd:%d to s:%i pid:%P fd:%d",
                       ch.slot, ch.pid, ch.fd,
                       i, ngx_processes[i].pid,
                       ngx_processes[i].channel[0]);
 
-        /* TODO: NGX_AGAIN */
+        // 将通道信息写入目标进程的通道
+        // 通过调用 `ngx_write_channel` 将信息传递给其他进程的通道
+        /* TODO: NGX_AGAIN */  // 处理无法立即写入通道的情况，可能需要重试
 
         ngx_write_channel(ngx_processes[i].channel[0],
                           &ch, sizeof(ngx_channel_t), cycle->log);
@@ -700,31 +732,35 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
 {
     ngx_int_t worker = (intptr_t) data;
 
-    ngx_process = NGX_PROCESS_WORKER;
-    ngx_worker = worker;
+    ngx_process = NGX_PROCESS_WORKER;  // 设置当前进程类型为 worker 进程
+    ngx_worker = worker;  // 获取当前 worker 进程的索引，通常用于标识不同的 worker 进程
 
-    ngx_worker_process_init(cycle, worker);
+    ngx_worker_process_init(cycle, worker);  // 初始化 worker 进程
 
-    ngx_setproctitle("worker process");
+    ngx_setproctitle("worker process");  // 设置进程的标题为 "worker process"
 
-    for ( ;; ) {
+    for ( ;; ) {  // 无限循环，子进程的生命周期
 
+        // 处理进程退出的条件
         if (ngx_exiting) {
             if (ngx_event_no_timers_left() == NGX_OK) {
                 ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
-                ngx_worker_process_exit(cycle);
+                ngx_worker_process_exit(cycle);  // 退出子进程
             }
         }
 
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0, "worker cycle");
 
+        // 处理事件和定时器，可能会阻塞在这里，直到有事件或定时器触发
         ngx_process_events_and_timers(cycle);
 
+        // 处理终止信号，如果设置了终止标志，则退出
         if (ngx_terminate) {
             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "exiting");
-            ngx_worker_process_exit(cycle);
+            ngx_worker_process_exit(cycle);  // 退出子进程
         }
 
+        // 处理退出信号，优雅关闭
         if (ngx_quit) {
             ngx_quit = 0;
             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
@@ -740,6 +776,7 @@ ngx_worker_process_cycle(ngx_cycle_t *cycle, void *data)
             }
         }
 
+        // 重新打开日志文件
         if (ngx_reopen) {
             ngx_reopen = 0;
             ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0, "reopening logs");

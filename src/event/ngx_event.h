@@ -28,58 +28,81 @@ typedef struct {
 
 
 struct ngx_event_s {
+    // data 字段：指向与该事件相关联的用户自定义数据，可以存储连接、请求等上下文信息
     void            *data;
 
+    // write 标志：占用1位，标识该事件是否为写事件（1表示写事件）
     unsigned         write:1;
 
+    // accept 标志：占用1位，用于指示该事件是否用于接受新连接（1表示是accept事件）
     unsigned         accept:1;
 
     /* used to detect the stale events in kqueue and epoll */
+    // instance 标志：占用1位，用于在kqueue和epoll中检测陈旧（stale）的事件
     unsigned         instance:1;
 
     /*
      * the event was passed or would be passed to a kernel;
      * in aio mode - operation was posted.
      */
+    // active 标志：占用1位，表明该事件是否已经传递给内核或在AIO模式下已提交操作
     unsigned         active:1;
 
+    // disabled 标志：占用1位，指示该事件是否被禁用，在禁用状态下该事件将不会被激活处理
     unsigned         disabled:1;
 
     /* the ready event; in aio mode 0 means that no operation can be posted */
+    // ready 标志：占用1位，表示事件是否准备就绪；在AIO模式下，0表示无法提交后续操作
     unsigned         ready:1;
 
+    // oneshot 标志：占用1位，标识该事件是否为一次性事件，触发后事件需重新注册
     unsigned         oneshot:1;
 
     /* aio operation is complete */
+    // complete 标志：占用1位，用以标记AIO操作是否已完成
     unsigned         complete:1;
 
+    // eof 标志：占用1位，表示在该事件中是否遇到了文件结束（EOF）情况
     unsigned         eof:1;
+    // error 标志：占用1位，表示事件处理中是否产生了错误
     unsigned         error:1;
 
+    // timedout 标志：占用1位，指明该事件是否因超时而触发
     unsigned         timedout:1;
+    // timer_set 标志：占用1位，表示是否为事件设置了定时器
     unsigned         timer_set:1;
 
+    // delayed 标志：占用1位，指示该事件的处理是否被延迟
     unsigned         delayed:1;
 
+    // deferred_accept 标志：占用1位，用于指示是否启用延迟接受机制，只有在有数据到达时才真正接受连接
     unsigned         deferred_accept:1;
 
     /* the pending eof reported by kqueue, epoll or in aio chain operation */
+    // pending_eof 标志：占用1位，用于存储由kqueue、epoll或AIO链操作报告的待处理EOF状态
     unsigned         pending_eof:1;
 
+    // posted 标志：占用1位，表示该事件是否已被添加到事件队列中等待调度处理
     unsigned         posted:1;
 
+    // closed 标志：占用1位，标识关联的连接是否已经关闭（1表示连接已关闭）
     unsigned         closed:1;
 
     /* to test on worker exit */
+    // channel 标志：占用1位，可用于在工作进程退出时进行状态检测
     unsigned         channel:1;
+    // resolver 标志：占用1位，用于标识事件是否与DNS解析相关
     unsigned         resolver:1;
 
+    // cancelable 标志：占用1位，指示该事件是否支持在处理中被取消
     unsigned         cancelable:1;
 
 #if (NGX_HAVE_KQUEUE)
+    // kq_vnode 标志：占用1位，仅在使用kqueue时有效，用于标记vnode相关的事件
     unsigned         kq_vnode:1;
 
     /* the pending errno reported by kqueue */
+    // kq_errno字段：用来存储kqueue报告的待处理错误码
     int              kq_errno;
 #endif
 
@@ -97,26 +120,32 @@ struct ngx_event_s {
      *   accept:     1 if accept many, 0 otherwise
      *   read:       bytes to read when event is ready, -1 if not known
      */
-
+    // available 字段：整型数据，用于记录与事件相关的可用数量，如待接受的socket数量或可读/可写的字节数
     int              available;
 
+    // handler 字段：函数指针，指向事件触发时调用的处理函数
     ngx_event_handler_pt  handler;
 
-
 #if (NGX_HAVE_IOCP)
+    // ovlp字段：在IOCP模式下使用的重叠结构体，保存与IOCP操作相关的参数和状态
     ngx_event_ovlp_t ovlp;
 #endif
 
+    // index 字段：无符号整型，用于标识该事件在数组或其他数据结构中的索引位置
     ngx_uint_t       index;
 
+    // log 字段：指向日志结构体的指针，用于在事件处理过程中记录调试、错误等日志信息
     ngx_log_t       *log;
 
+    // timer 字段：红黑树节点，利用该节点将事件安排至定时器管理的红黑树中
     ngx_rbtree_node_t   timer;
 
     /* the posted queue */
+    // queue 字段：队列节点，用于将该事件插入到待处理（posted）的事件队列中
     ngx_queue_t      queue;
 
 #if 0
+    // 以下代码块被禁用，目前用于多线程支持扩展，当编译器不支持__thread声明且pthread_getspecific()性能不足时使用
 
     /* the threads support */
 
@@ -125,13 +154,12 @@ struct ngx_event_s {
      * if $(CC) does not understand __thread declaration
      * and pthread_getspecific() is too costly
      */
-
+    // thr_ctx 字段：保存事件对应的线程上下文信息，用于优化线程本地存储的访问
     void            *thr_ctx;
 
 #if (NGX_EVENT_T_PADDING)
-
     /* event should not cross cache line in SMP */
-
+    // padding 数组：用于填充结构体，确保事件结构体不会跨越CPU缓存行，在SMP系统中提升性能
     uint32_t         padding[NGX_EVENT_T_PADDING];
 #endif
 #endif
@@ -426,6 +454,9 @@ extern ngx_os_io_t  ngx_io;
 #define NGX_EVENT_CONF        0x02000000
 
 
+/**
+ * event事件模块配置的结构对象
+ */
 typedef struct {
     ngx_uint_t    connections;
     ngx_uint_t    use;
@@ -493,15 +524,57 @@ extern ngx_module_t           ngx_event_core_module;
 
 
 
+/* 
+ * 处理监听事件的函数，当监听的套接字上有新的连接到达时，
+ * 该函数被调用以接收新的连接并进行相应的处理。
+ */
 void ngx_event_accept(ngx_event_t *ev);
+
+/*
+ * 尝试获取 accept 互斥锁的函数。
+ * 该函数用于在多进程环境下防止惊群效应，
+ * 即避免多个工作进程同时处理 accept 事件。 
+ * 如果成功获取互斥锁，则允许当前进程接受新连接，
+ * 否则会根据具体情况设置相应的延迟或禁用事件。
+ */
 ngx_int_t ngx_trylock_accept_mutex(ngx_cycle_t *cycle);
+
+/*
+ * 启用监听套接字上接收事件的函数。
+ * 该函数遍历所有的监听套接字，并为尚未激活的读事件添加监听，
+ * 确保系统能够及时捕获和处理新的连接请求。
+ */
 ngx_int_t ngx_enable_accept_events(ngx_cycle_t *cycle);
+
+/*
+ * accept 错误日志记录函数。
+ * 当在处理 accept 操作时发生错误，该函数被调用，用于格式化错误信息，
+ * 并将其写入日志缓冲区，以便进行后续的调试和错误分析。
+ */
 u_char *ngx_accept_log_error(ngx_log_t *log, u_char *buf, size_t len);
 #if (NGX_DEBUG)
 void ngx_debug_accepted_connection(ngx_event_conf_t *ecf, ngx_connection_t *c);
 #endif
 
 
+/**
+ * @brief 处理事件和定时器的核心函数
+ * 
+ * 该函数是Nginx事件处理的核心，主要职责包括：
+ * 1. 处理定时器事件
+ * 2. 处理网络I/O事件
+ * 3. 管理accept锁
+ * 4. 处理post事件
+ *
+ * 工作流程：
+ * 1. 获取最近的定时器超时时间
+ * 2. 尝试获取accept锁(如果启用)
+ * 3. 调用具体事件模型(epoll/select等)处理事件
+ * 4. 释放accept锁(如果持有)
+ * 5. 处理post事件队列
+ * 
+ * @param cycle Nginx核心配置结构体
+ */
 void ngx_process_events_and_timers(ngx_cycle_t *cycle);
 ngx_int_t ngx_handle_read_event(ngx_event_t *rev, ngx_uint_t flags);
 ngx_int_t ngx_handle_write_event(ngx_event_t *wev, size_t lowat);

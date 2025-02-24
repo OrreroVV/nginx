@@ -327,37 +327,49 @@ ngx_event_accept(ngx_event_t *ev)
 ngx_int_t
 ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 {
+    // 尝试获取接受事件的共享互斥锁，确保多个进程不会同时处理新连接
     if (ngx_shmtx_trylock(&ngx_accept_mutex)) {
 
+        // 成功获取锁后，记录调试日志，表明已成功锁定
         ngx_log_debug0(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "accept mutex locked");
 
+        // 如果当前已经标记为持有互斥锁且没有等待处理的接受事件，则直接返回成功
         if (ngx_accept_mutex_held && ngx_accept_events == 0) {
             return NGX_OK;
         }
 
+        // 调用函数启用所有监听套接字的接收事件
+        // 如果启用事件失败，则需要释放互斥锁并返回错误
         if (ngx_enable_accept_events(cycle) == NGX_ERROR) {
             ngx_shmtx_unlock(&ngx_accept_mutex);
             return NGX_ERROR;
         }
 
+        // 重置等待接受事件的计数为0
         ngx_accept_events = 0;
+        // 标记当前进程已持有接收互斥锁
         ngx_accept_mutex_held = 1;
 
+        // 成功启用接受事件后返回成功状态
         return NGX_OK;
     }
 
+    // 如果尝试获取互斥锁失败，则记录调试日志，日志中指出当前的互斥锁持有状态
     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                    "accept mutex lock failed: %ui", ngx_accept_mutex_held);
 
+    // 如果当前进程曾经持有互斥锁，则尝试禁用接受事件以保证状态同步
     if (ngx_accept_mutex_held) {
+        // 禁用接受事件，如果出错则返回错误
         if (ngx_disable_accept_events(cycle, 0) == NGX_ERROR) {
             return NGX_ERROR;
         }
-
+        // 更新状态标记，表示当前不再持有互斥锁
         ngx_accept_mutex_held = 0;
     }
 
+    // 最终以成功状态结束该函数
     return NGX_OK;
 }
 
@@ -365,24 +377,37 @@ ngx_trylock_accept_mutex(ngx_cycle_t *cycle)
 ngx_int_t
 ngx_enable_accept_events(ngx_cycle_t *cycle)
 {
+    // 定义循环变量，用于遍历所有监听套接字
     ngx_uint_t         i;
+    // 获取监听套接字数组指针
     ngx_listening_t   *ls;
+    // 定义连接对象指针
     ngx_connection_t  *c;
 
+    // 从cycle结构体中获取所有监听套接字的数组
     ls = cycle->listening.elts;
+
+    // 遍历整个监听套接字数组
     for (i = 0; i < cycle->listening.nelts; i++) {
 
+        // 从当前监听套接字中取得其对应的连接对象
         c = ls[i].connection;
 
+        // 如果连接对象不存在，或者该连接的读事件已经处于激活状态，则跳过当前循环不做处理
         if (c == NULL || c->read->active) {
             continue;
         }
 
+        // 为未激活的读事件添加监听
+        // ngx_add_event函数用于将指定的事件添加到事件处理机制中
+        // 这里使用NGX_READ_EVENT表示添加读取事件，第三个参数0代表使用默认的事件标志
         if (ngx_add_event(c->read, NGX_READ_EVENT, 0) == NGX_ERROR) {
+            // 如果添加事件失败，立即返回错误码NGX_ERROR，以便上层能及时处理异常情况
             return NGX_ERROR;
         }
     }
 
+    // 如果所有监听套接字的读事件均成功添加，则返回NGX_OK表示操作成功
     return NGX_OK;
 }
 

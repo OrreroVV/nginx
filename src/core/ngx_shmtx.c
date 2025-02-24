@@ -62,6 +62,9 @@ ngx_shmtx_destroy(ngx_shmtx_t *mtx)
 ngx_uint_t
 ngx_shmtx_trylock(ngx_shmtx_t *mtx)
 {
+    // 检查当前锁是否未被占用（即值为0），若是，则通过原子比较操作尝试将其从0更新为当前进程ID（ngx_pid）
+    // ngx_atomic_cmp_set只有在锁的当前值为0时才能成功替换，从而保证获取锁的原子性
+    // 如果条件成立并且原子操作成功，就说明当前进程成功获取了锁，返回真
     return (*mtx->lock == 0 && ngx_atomic_cmp_set(mtx->lock, 0, ngx_pid));
 }
 

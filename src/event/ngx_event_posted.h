@@ -38,7 +38,10 @@
 
 
 
+// 处理已投递事件队列：该函数遍历指定的事件队列，删除已投递的事件后调用各事件的处理函数。
 void ngx_event_process_posted(ngx_cycle_t *cycle, ngx_queue_t *posted);
+
+// 移动延迟事件到立即处理队列：此函数将延迟处理队列中的事件移动到立即处理的队列中，并将事件标记为就绪状态。
 void ngx_event_move_posted_next(ngx_cycle_t *cycle);
 
 

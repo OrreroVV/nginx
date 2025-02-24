@@ -120,8 +120,22 @@ static ngx_int_t ngx_epoll_del_connection(ngx_connection_t *c,
 #if (NGX_HAVE_EVENTFD)
 static ngx_int_t ngx_epoll_notify(ngx_event_handler_pt handler);
 #endif
-static ngx_int_t ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer,
-    ngx_uint_t flags);
+
+/**
+ * @brief 处理 epoll 事件的函数
+ *
+ * 该函数主要用于等待内核中 epoll 事件的发生，并对这些事件进行处理。它通常会：
+ *   - 调用 epoll_wait() 系统调用，根据指定的超时时间（timer 参数）等待事件发生；
+ *   - 根据 flags 参数决定是否执行额外操作，如更新系统时间或处理调试信息；
+ *   - 遍历获得的事件并调用相应的事件处理函数。
+ *
+ *   @param cycle: 指向当前运行周期的 ngx_cycle_t 结构体，其中包含了事件处理相关的配置和状态信息。
+ *   @param timer: 指定等待事件发生的超时时间（单位：毫秒），NGX_TIMER_INFINITE 表示无限等待。
+ *   @param flags: 标志位，用于指示在事件处理时是否需要进行额外操作，如时间更新或调试日志记录等。
+ *
+ *   @return 通常返回 NGX_OK 表示事件处理成功，返回 NGX_ERROR 表示处理过程中出现错误。
+ */
+static ngx_int_t ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags);
 
 #if (NGX_HAVE_FILE_AIO)
 static void ngx_epoll_eventfd_handler(ngx_event_t *ev);
@@ -578,64 +592,71 @@ ngx_epoll_done(ngx_cycle_t *cycle)
 static ngx_int_t
 ngx_epoll_add_event(ngx_event_t *ev, ngx_int_t event, ngx_uint_t flags)
 {
-    int                  op;
-    uint32_t             events, prev;
-    ngx_event_t         *e;
-    ngx_connection_t    *c;
-    struct epoll_event   ee;
+    int                  op; /* 定义epoll_ctl操作类型变量: 用于指定添加(EPOLL_CTL_ADD)或修改(EPOLL_CTL_MOD)事件 */
+    uint32_t             events, prev; /* events: 当前事件的标志；prev: 代表已存在的对立事件的标志 */
+    ngx_event_t         *e; /* 指向连接上对立的事件（如：读/写事件） */
+    ngx_connection_t    *c; /* 指向当前事件所属的连接对象 */
+    struct epoll_event   ee; /* epoll_ctl操作所需的结构体，包含事件和相关数据 */
 
-    c = ev->data;
+    c = ev->data; /* 从事件结构中提取对应的连接对象 */
 
-    events = (uint32_t) event;
+    events = (uint32_t) event; /* 将传入的事件类型转换为无符号整型，并赋值给events */
 
     if (event == NGX_READ_EVENT) {
-        e = c->write;
-        prev = EPOLLOUT;
+        /* 如果传入的事件为读事件 */
+        e = c->write; /* 取得该连接的写事件作为对立事件进行判断 */
+        prev = EPOLLOUT; /* 对立事件标志设置为EPOLLOUT */
 #if (NGX_READ_EVENT != EPOLLIN|EPOLLRDHUP)
-        events = EPOLLIN|EPOLLRDHUP;
+        events = EPOLLIN|EPOLLRDHUP; /* 如果NGX_READ_EVENT与EPOLLIN|EPOLLRDHUP不等，则使用EPOLLIN与EPOLLRDHUP的组合来设置事件 */
 #endif
 
     } else {
-        e = c->read;
-        prev = EPOLLIN|EPOLLRDHUP;
+        /* 如果传入的事件为写事件 */
+        e = c->read; /* 取得该连接的读事件作为对立事件 */
+        prev = EPOLLIN|EPOLLRDHUP; /* 对立事件标志为EPOLLIN和EPOLLRDHUP的组合 */
 #if (NGX_WRITE_EVENT != EPOLLOUT)
-        events = EPOLLOUT;
+        events = EPOLLOUT; /* 如果NGX_WRITE_EVENT与EPOLLOUT不等，则只使用EPOLLOUT作为事件标志 */
 #endif
     }
 
     if (e->active) {
-        op = EPOLL_CTL_MOD;
-        events |= prev;
+        /* 如果对应的对立事件已激活，则需要修改已存在的事件 */
+        op = EPOLL_CTL_MOD; /* 设置操作类型为修改 */
+        events |= prev; /* 将原有的对立事件标志合并到当前事件标志中 */
 
     } else {
-        op = EPOLL_CTL_ADD;
+        /* 如果对立事件没有激活，则添加新的事件 */
+        op = EPOLL_CTL_ADD; /* 设置操作类型为添加 */
     }
 
 #if (NGX_HAVE_EPOLLEXCLUSIVE && NGX_HAVE_EPOLLRDHUP)
     if (flags & NGX_EXCLUSIVE_EVENT) {
+        /* 如果标志中包含NGX_EXCLUSIVE_EVENT，则从事件中移除EPOLLRDHUP标志 */
         events &= ~EPOLLRDHUP;
     }
 #endif
 
-    ee.events = events | (uint32_t) flags;
-    ee.data.ptr = (void *) ((uintptr_t) c | ev->instance);
+    ee.events = events | (uint32_t) flags; /* 将最终的事件标志和传入的额外flags进行OR操作后赋值给ee.events */
+    ee.data.ptr = (void *) ((uintptr_t) c | ev->instance); /* 将连接指针与事件实例标识合并后存入ee.data.ptr，用于在事件通知时识别连接 */
 
     ngx_log_debug3(NGX_LOG_DEBUG_EVENT, ev->log, 0,
                    "epoll add event: fd:%d op:%d ev:%08XD",
-                   c->fd, op, ee.events);
+                   c->fd, op, ee.events); 
+    /* 记录调试日志：打印文件描述符、操作类型及事件标志的详细信息 */
 
     if (epoll_ctl(ep, op, c->fd, &ee) == -1) {
+        /* 调用epoll_ctl执行添加或修改事件操作，如果返回-1则表示出错 */
         ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_errno,
                       "epoll_ctl(%d, %d) failed", op, c->fd);
-        return NGX_ERROR;
+        return NGX_ERROR; /* 返回错误码 */
     }
 
-    ev->active = 1;
+    ev->active = 1; /* 标记当前事件为激活状态 */
 #if 0
-    ev->oneshot = (flags & NGX_ONESHOT_EVENT) ? 1 : 0;
+    ev->oneshot = (flags & NGX_ONESHOT_EVENT) ? 1 : 0; /* 如果设置了oneshot标志，则设置相应的oneshot值（目前此段代码被禁用） */
 #endif
 
-    return NGX_OK;
+    return NGX_OK; /* 返回成功状态 */
 }
 
 
@@ -833,33 +854,46 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
         return NGX_ERROR;
     }
 
+    // 下面的循环用于处理 epoll_wait 返回的所有事件，每个事件关联一个网络连接对象，
+    // 通过位操作判断事件的有效性和实例标识，从而决定后续的事件处理方式。
     for (i = 0; i < events; i++) {
+        // 从事件列表中获取当前事件关联的连接对象指针
         c = event_list[i].data.ptr;
 
+        // 使用指针最低位来保存事件实例信息，提取出该实例标识
         instance = (uintptr_t) c & 1;
+        // 清除指针中的最低位标志，以获取实际的 ngx_connection_t 结构指针
         c = (ngx_connection_t *) ((uintptr_t) c & (uintptr_t) ~1);
 
+        // 获取与连接相关联的读事件结构，后续会检查该读事件的状态
         rev = c->read;
 
+        // 如果文件描述符为-1，或者事件实例不匹配，则跳过当前事件
+        // 如果连接的文件描述符无效或者读事件实例与期望不匹配，
+        // 则可能是由于连接在本次循环中刚关闭而产生的陈旧事件，直接跳过处理。
         if (c->fd == -1 || rev->instance != instance) {
 
             /*
              * the stale event from a file descriptor
              * that was just closed in this iteration
              */
-
+            // 记录该陈旧事件的调试信息，利于后续问题的排查
             ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                            "epoll: stale event %p", c);
             continue;
         }
 
+        // 从当前事件中获取事件掩码，反映该文件描述符上发生的事件类型
         revents = event_list[i].events;
 
+        // 输出调试日志，记录文件描述符、事件掩码以及原始指针信息
         ngx_log_debug3(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                        "epoll: fd:%d ev:%04XD d:%p",
                        c->fd, revents, event_list[i].data.ptr);
 
+        // 检查是否有错误或挂断事件，如果是，则强制设置读写事件标志，确保事件至少由一个处理器处理
         if (revents & (EPOLLERR|EPOLLHUP)) {
+            // 记录错误或挂断事件的文件描述符及对应的事件掩码
             ngx_log_debug2(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                            "epoll_wait() error on fd:%d ev:%04XD",
                            c->fd, revents);
@@ -868,7 +902,7 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
              * if the error events were returned, add EPOLLIN and EPOLLOUT
              * to handle the events at least in one active handler
              */
-
+            // 将 EPOLLIN 和 EPOLLOUT 位追加到事件掩码中，确保后续能够调用相应的事件处理器
             revents |= EPOLLIN|EPOLLOUT;
         }
 
@@ -880,53 +914,68 @@ ngx_epoll_process_events(ngx_cycle_t *cycle, ngx_msec_t timer, ngx_uint_t flags)
         }
 #endif
 
+        // 检查是否发生了读事件，且该读事件当前处于激活状态
         if ((revents & EPOLLIN) && rev->active) {
 
 #if (NGX_HAVE_EPOLLRDHUP)
+            // 如果支持 EPOLLRDHUP 且检测到该标志，则设置 pending_eof 标记，表示对端可能已关闭连接
             if (revents & EPOLLRDHUP) {
                 rev->pending_eof = 1;
             }
 #endif
 
+            // 标记读事件为就绪，表示能够进行数据读取
             rev->ready = 1;
+            // 将可读数据大小设为 -1，表示数据量未知或需要后续确定
             rev->available = -1;
 
+            // 判断是否启用了延迟事件处理机制，如果启用则将事件入队，否则直接处理
             if (flags & NGX_POST_EVENTS) {
+                // 根据事件类型（accept 与否）选择对应的事件队列
                 queue = rev->accept ? &ngx_posted_accept_events
                                     : &ngx_posted_events;
 
                 ngx_post_event(rev, queue);
 
             } else {
+                // 直接调用读事件回调函数处理该事件
                 rev->handler(rev);
             }
         }
 
+        // 获取与连接相关联的写事件结构，后续用于检查写事件状态并处置
         wev = c->write;
 
+        // 检查是否发生写事件，并确保写事件处于激活状态
         if ((revents & EPOLLOUT) && wev->active) {
 
+            // 再次验证连接状态，防止因连接关闭导致的陈旧写事件干扰
             if (c->fd == -1 || wev->instance != instance) {
 
                 /*
                  * the stale event from a file descriptor
                  * that was just closed in this iteration
                  */
-
+                // 输出调试日志记录陈旧写事件信息，并跳过该事件处理
                 ngx_log_debug1(NGX_LOG_DEBUG_EVENT, cycle->log, 0,
                                "epoll: stale event %p", c);
                 continue;
             }
 
+            // 标记写事件为就绪，表示写操作可以执行
             wev->ready = 1;
 #if (NGX_THREADS)
+            // 如果启用了多线程，则设置 complete 状态，指示当前写事件处理已完成必要的同步操作
             wev->complete = 1;
 #endif
 
+            // 根据是否启用延迟事件处理机制，决定将写事件入队或直接调用处理函数
             if (flags & NGX_POST_EVENTS) {
+                // 将写事件添加到事件队列中，以便稍后由统一调度机制处理
                 ngx_post_event(wev, &ngx_posted_events);
 
             } else {
+                // 直接调用写事件的处理回调函数，执行数据发送等写操作
                 wev->handler(wev);
             }
         }

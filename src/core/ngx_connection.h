@@ -15,6 +15,12 @@
 
 typedef struct ngx_listening_s  ngx_listening_t;
 
+/**
+ * @brief 监听套接字结构体
+ * 
+ * 该结构体用于描述一个具体的监听端口，包括套接字文件描述符、监听地址、套接字类型、
+ * 队列长度、接收缓冲区大小、发送缓冲区大小等参数。
+ */
 struct ngx_listening_s {
     ngx_socket_t        fd;                 /* 套接字文件描述符，用于标识一个具体的监听端口 */
 
@@ -35,7 +41,7 @@ struct ngx_listening_s {
     int                 keepcnt;            /* TCP 保活探测失败的最大次数 */
 #endif
 
-    ngx_connection_handler_pt   handler;    /* 接收到连接后调用的回调函数，处理新连接 */
+    ngx_connection_handler_pt   handler;    /* 接收到连接后调用的回调函数，处理新连接，回调方法：ngx_http_init_connection  */
     void               *servers;            /* 指向与此监听端口相关的服务模块配置，
                                                例如 HTTP 模块会指向 ngx_http_in_addr_t 数组 */
 
@@ -121,84 +127,92 @@ typedef enum {
 #define NGX_HTTP_V2_BUFFERED   0x02
 
 
+/**
+ * @brief 连接结构体
+ * 
+ * 该结构体用于描述一个具体的网络连接，包括套接字描述符、监听套接字、
+ * 内存池、日志结构体、连接类型标识、远程地址信息、本地地址信息等参数。
+ * 
+ * 
+ */
 struct ngx_connection_s {
-    void               *data;
-    ngx_event_t        *read;
-    ngx_event_t        *write;
+    void               *data;              /* 指向与该连接关联的用户自定义数据，可用于存储扩展信息 */
+    ngx_event_t        *read;              /* 指向该连接相关的读事件结构体，处理数据读取操作 */
+    ngx_event_t        *write;             /* 指向该连接相关的写事件结构体，处理数据写入操作 */
 
-    ngx_socket_t        fd;
+    ngx_socket_t        fd;                /* 套接字描述符，用于标识和操作该网络连接 */
 
-    ngx_recv_pt         recv;
-    ngx_send_pt         send;
-    ngx_recv_chain_pt   recv_chain;
-    ngx_send_chain_pt   send_chain;
+    ngx_recv_pt         recv;              /* 数据接收函数指针，用于从连接中接收数据 */
+    ngx_send_pt         send;              /* 数据发送函数指针，用于向连接中发送数据 */
+    ngx_recv_chain_pt   recv_chain;        /* 链式数据接收函数指针，支持分散读取 */
+    ngx_send_chain_pt   send_chain;        /* 链式数据发送函数指针，支持聚集写入 */
 
-    ngx_listening_t    *listening;
+    ngx_listening_t    *listening;         /* 与该连接相关联的监听套接字结构体，记录源监听信息 */
 
-    off_t               sent;
+    off_t               sent;              /* 已经发送的数据字节数，便于统计传输数据量 */
 
-    ngx_log_t          *log;
+    ngx_log_t          *log;               /* 日志结构体指针，用于记录该连接的错误、调试及跟踪日志 */
 
-    ngx_pool_t         *pool;
+    ngx_pool_t         *pool;              /* 内存池指针，连接使用的内存资源分配池 */
 
-    int                 type;
+    int                 type;              /* 连接类型标识（例如：流式、数据报等），通常对应一个枚举值 */
 
-    struct sockaddr    *sockaddr;
-    socklen_t           socklen;
-    ngx_str_t           addr_text;
+    struct sockaddr    *sockaddr;          /* 指向远程端（对端）的地址信息结构体 */
+    socklen_t           socklen;           /* sockaddr结构体的长度 */
+    ngx_str_t           addr_text;         /* 远程地址的文本表达，常用于日志记录和调试 */
 
-    ngx_proxy_protocol_t  *proxy_protocol;
+    ngx_proxy_protocol_t  *proxy_protocol; /* 指向proxy协议处理结构体，支持代理协议功能 */
 
 #if (NGX_QUIC || NGX_COMPAT)
-    ngx_quic_stream_t     *quic;
+    ngx_quic_stream_t     *quic;          /* 指向QUIC协议流结构体，仅在启用QUIC或兼容模式下有效 */
 #endif
 
 #if (NGX_SSL || NGX_COMPAT)
-    ngx_ssl_connection_t  *ssl;
+    ngx_ssl_connection_t  *ssl;           /* 指向SSL/TLS连接信息结构体，用于处理加密通信 */
 #endif
 
-    ngx_udp_connection_t  *udp;
+    ngx_udp_connection_t  *udp;           /* 指向UDP连接结构体，用于处理UDP协议的相关操作 */
 
-    struct sockaddr    *local_sockaddr;
-    socklen_t           local_socklen;
+    struct sockaddr    *local_sockaddr;    /* 指向本地端地址的结构体，记录本机的网络地址信息 */
+    socklen_t           local_socklen;       /* 本地地址结构体的长度 */
 
-    ngx_buf_t          *buffer;
+    ngx_buf_t          *buffer;            /* 数据缓冲区指针，用于临时存储数据 */
 
-    ngx_queue_t         queue;
+    ngx_queue_t         queue;             /* 队列节点，用于将该连接插入到连接队列中进行管理 */
 
-    ngx_atomic_uint_t   number;
+    ngx_atomic_uint_t   number;            /* 原子计数器，表示此连接的编号，便于追踪和调试 */
 
-    ngx_msec_t          start_time;
-    ngx_uint_t          requests;
+    ngx_msec_t          start_time;        /* 连接开始建立的时间（毫秒），用于超时和统计处理 */
+    ngx_uint_t          requests;          /* 当前连接已处理的请求数量 */
 
-    unsigned            buffered:8;
+    unsigned            buffered:8;        /* 8位位域，用于标记连接缓冲状态的各种标记位 */
 
-    unsigned            log_error:3;     /* ngx_connection_log_error_e */
+    unsigned            log_error:3;       /* 3位位域，用于设置日志错误的级别，参见ngx_connection_log_error_e枚举 */
 
-    unsigned            timedout:1;
-    unsigned            error:1;
-    unsigned            destroyed:1;
-    unsigned            pipeline:1;
+    unsigned            timedout:1;        /* 1位标志：标记该连接是否已超时 */
+    unsigned            error:1;           /* 1位标志：标记该连接是否出现错误 */
+    unsigned            destroyed:1;       /* 1位标志：标记该连接是否已被销毁 */
+    unsigned            pipeline:1;        /* 1位标志：标记连接是否启用了管道传输模式 */
 
-    unsigned            idle:1;
-    unsigned            reusable:1;
-    unsigned            close:1;
-    unsigned            shared:1;
+    unsigned            idle:1;            /* 1位标志：标记连接是否处于空闲状态 */
+    unsigned            reusable:1;        /* 1位标志：标记连接是否可以被重用，降低资源开销 */
+    unsigned            close:1;           /* 1位标志：标记连接是否需要关闭 */
+    unsigned            shared:1;          /* 1位标志：标记连接是否为共享连接 */
 
-    unsigned            sendfile:1;
-    unsigned            sndlowat:1;
-    unsigned            tcp_nodelay:2;   /* ngx_connection_tcp_nodelay_e */
-    unsigned            tcp_nopush:2;    /* ngx_connection_tcp_nopush_e */
+    unsigned            sendfile:1;        /* 1位标志：指示是否使用sendfile系统调用进行文件发送 */
+    unsigned            sndlowat:1;        /* 1位标志：设置或标记发送低水位选项，优化发送性能 */
+    unsigned            tcp_nodelay:2;     /* 2位位域：控制TCP_NODELAY选项，参见ngx_connection_tcp_nodelay_e枚举 */
+    unsigned            tcp_nopush:2;      /* 2位位域：控制TCP_NOPUSH选项，参见ngx_connection_tcp_nopush_e枚举 */
 
-    unsigned            need_last_buf:1;
-    unsigned            need_flush_buf:1;
+    unsigned            need_last_buf:1;   /* 1位标志：指示是否需要在发送完数据后传送最后缓冲区 */
+    unsigned            need_flush_buf:1;  /* 1位标志：指示是否需要立即刷新缓冲区，将数据输出 */
 
 #if (NGX_HAVE_SENDFILE_NODISKIO || NGX_COMPAT)
-    unsigned            busy_count:2;
+    unsigned            busy_count:2;      /* 2位位域：用于记录当前连接的繁忙计数，通常与无磁盘IO sendfile相关 */
 #endif
 
 #if (NGX_THREADS || NGX_COMPAT)
-    ngx_thread_task_t  *sendfile_task;
+    ngx_thread_task_t  *sendfile_task;    /* 指向线程任务结构体，用于在多线程环境中异步处理sendfile任务 */
 #endif
 };
 

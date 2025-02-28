@@ -458,18 +458,18 @@ extern ngx_os_io_t  ngx_io;
  * event事件模块配置的结构对象
  */
 typedef struct {
-    ngx_uint_t    connections;
-    ngx_uint_t    use;
+    ngx_uint_t    connections;         /* 连接池的大小 */
+    ngx_uint_t    use;                 /* 事件模型的标识，用于选择使用哪种事件模型(select/poll/epoll等) */
 
-    ngx_flag_t    multi_accept;
-    ngx_flag_t    accept_mutex;
+    ngx_flag_t    multi_accept;        /* 标识是否一次接受多个新连接,为1时开启 */
+    ngx_flag_t    accept_mutex;        /* 是否启用accept锁。当启用时,多个worker进程轮流接受新连接 */
 
-    ngx_msec_t    accept_mutex_delay;
+    ngx_msec_t    accept_mutex_delay;  /* 当accept锁获取失败后,延迟重试的时间,单位为毫秒 */
 
-    u_char       *name;
+    u_char       *name;                /* 所使用的事件模型的名称 */
 
 #if (NGX_DEBUG)
-    ngx_array_t   debug_connection;
+    ngx_array_t   debug_connection;    /* 调试连接的IP地址数组,只在调试模式下生效 */
 #endif
 } ngx_event_conf_t;
 

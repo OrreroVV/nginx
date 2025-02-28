@@ -821,63 +821,89 @@ ngx_http_handler(ngx_http_request_t *r)
 {
     ngx_http_core_main_conf_t  *cmcf;
 
-    r->connection->log->action = NULL;
+    r->connection->log->action = NULL;  // 清除当前连接的日志动作
 
-    if (!r->internal) {
-        switch (r->headers_in.connection_type) {
+    if (!r->internal) {  // 如果请求不是内部请求
+        switch (r->headers_in.connection_type) {  // 根据连接类型设置keepalive
         case 0:
-            r->keepalive = (r->http_version > NGX_HTTP_VERSION_10);
+            r->keepalive = (r->http_version > NGX_HTTP_VERSION_10);  // HTTP/1.1及以上默认保持连接
             break;
 
         case NGX_HTTP_CONNECTION_CLOSE:
-            r->keepalive = 0;
+            r->keepalive = 0;  // 连接类型为关闭
             break;
 
         case NGX_HTTP_CONNECTION_KEEP_ALIVE:
-            r->keepalive = 1;
+            r->keepalive = 1;  // 连接类型为保持连接
             break;
         }
 
         r->lingering_close = (r->headers_in.content_length_n > 0
-                              || r->headers_in.chunked);
-        r->phase_handler = 0;
+                              || r->headers_in.chunked);  // 设置是否需要延迟关闭
+        r->phase_handler = 0;  // 初始化阶段处理器
 
-    } else {
-        cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
-        r->phase_handler = cmcf->phase_engine.server_rewrite_index;
+    } else {  // 如果是内部请求
+        cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);  // 获取核心模块的主配置
+        r->phase_handler = cmcf->phase_engine.server_rewrite_index;  // 设置阶段处理器为服务器重写索引
     }
 
-    r->valid_location = 1;
+    r->valid_location = 1;  // 标记请求位置有效
 #if (NGX_HTTP_GZIP)
-    r->gzip_tested = 0;
-    r->gzip_ok = 0;
-    r->gzip_vary = 0;
+    r->gzip_tested = 0;  // 初始化gzip测试标志
+    r->gzip_ok = 0;  // 初始化gzip可用标志
+    r->gzip_vary = 0;  // 初始化gzip vary标志
 #endif
 
-    r->write_event_handler = ngx_http_core_run_phases;
-    ngx_http_core_run_phases(r);
+    r->write_event_handler = ngx_http_core_run_phases;  // 设置写事件处理器为运行阶段
+    ngx_http_core_run_phases(r);  // 运行请求的处理阶段
 }
 
 
+/*
+ * 驱动HTTP请求通过各个处理阶段的核心函数
+ * 该函数通过相位引擎按顺序执行配置的各个阶段处理器
+ */
 void
 ngx_http_core_run_phases(ngx_http_request_t *r)
 {
-    ngx_int_t                   rc;
-    ngx_http_phase_handler_t   *ph;
-    ngx_http_core_main_conf_t  *cmcf;
+    ngx_int_t                   rc;  // 阶段处理函数的返回值，用于控制流程
+    ngx_http_phase_handler_t   *ph;  // 当前阶段处理器指针
+    ngx_http_core_main_conf_t  *cmcf;  // HTTP核心模块的主配置结构
 
+    // 从请求的模块配置中获取HTTP核心模块的主配置
     cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
 
+    // 获取相位引擎中配置的所有阶段处理器数组
     ph = cmcf->phase_engine.handlers;
 
+    /*
+     * 循环执行所有配置的阶段处理器
+     * 使用r->phase_handler作为索引遍历处理器数组
+     * 当遇到checker为NULL的处理器时停止循环
+     */
     while (ph[r->phase_handler].checker) {
 
+        /*
+         * 调用当前阶段处理器的检查函数
+         * checker函数负责执行具体的阶段处理逻辑
+         * 并决定如何推进处理流程（继续下一阶段/中断/重试等）
+         */
         rc = ph[r->phase_handler].checker(r, &ph[r->phase_handler]);
 
+        // 如果当前阶段已成功完成处理，返回并继续后续处理流程
         if (rc == NGX_OK) {
+            /* 
+             * 返回NGX_OK表示当前阶段处理完成
+             * 后续处理将由事件驱动机制重新触发
+             */
             return;
         }
     }
+    
+    /* 
+     * 当所有阶段处理器执行完毕（遇到checker为NULL的处理器）
+     * 函数将自然返回，请求处理流程进入下一个阶段
+     */
 }
 
 

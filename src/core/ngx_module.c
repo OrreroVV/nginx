@@ -68,6 +68,9 @@ ngx_init_modules(ngx_cycle_t *cycle)
     ngx_uint_t  i;
 
     for (i = 0; cycle->modules[i]; i++) {
+        /* 调用每个模块的初始化函数
+         * 其中，event模块也在这初始化
+         */
         if (cycle->modules[i]->init_module) {
             if (cycle->modules[i]->init_module(cycle) != NGX_OK) {
                 return NGX_ERROR;

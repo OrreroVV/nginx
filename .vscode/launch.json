@@ -1,0 +1,71 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug Parent",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/objs/nginx",
+            "args": [
+                "-c", "/home/hzh/workspace/nginx/conf/nginx.conf"
+            ],
+            "stopAtEntry": false,
+            "cwd": "/home/hzh/workspace/nginx",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "preLaunchTask":  "Clear Nginx Process",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "仅调试父进程",
+                    "text": "set follow-fork-mode parent",  // 仅调试父进程
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "设置断点后不脱离子进程",
+                    "text": "set detach-on-fork off",
+                    "ignoreFailures": true
+                }
+            ]
+        },
+        {
+            "name": "Debug Child",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/objs/nginx",
+            "args": [
+                "-c", "/home/hzh/workspace/nginx/conf/nginx.conf"
+            ],
+            "stopAtEntry": false,
+            "cwd": "/home/hzh/workspace/nginx",
+            "environment": [],
+            "externalConsole": false,
+            "MIMode": "gdb",
+            "miDebuggerPath": "/usr/bin/gdb",
+            "preLaunchTask": "Clear Nginx Process",
+            "setupCommands": [
+                {
+                    "description": "为 gdb 启用美化打印",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                },
+                {
+                    "description": "设置跟踪 fork 后的子进程",
+                    "text": "set follow-fork-mode child",
+                    "ignoreFailures": false
+                },
+                {
+                    "description": "设置断点后不脱离子进程",
+                    "text": "set detach-on-fork off",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}

@@ -1132,6 +1132,12 @@ ngx_close_listening_sockets(ngx_cycle_t *cycle)
 }
 
 
+/*
+ * 从空闲连接池中获取一个连接对象
+ * s: 新建立的socket描述符
+ * log: 日志对象
+ * 返回: 成功返回连接对象,失败返回NULL
+ */
 ngx_connection_t *
 ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
 {
@@ -1141,6 +1147,7 @@ ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
 
     /* disable warning: Win32 SOCKET is u_int while UNIX socket is int */
 
+    /* 检查socket描述符是否超出系统最大文件数限制 */
     if (ngx_cycle->files && (ngx_uint_t) s >= ngx_cycle->files_n) {
         ngx_log_error(NGX_LOG_ALERT, log, 0,
                       "the new socket has number %d, "
@@ -1149,10 +1156,13 @@ ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
         return NULL;
     }
 
+    /* 回收超时的空闲连接 */
     ngx_drain_connections((ngx_cycle_t *) ngx_cycle);
 
+    /* 从空闲连接池获取一个连接 */
     c = ngx_cycle->free_connections;
 
+    /* 空闲连接池为空,表示worker_connections配置不够 */
     if (c == NULL) {
         ngx_log_error(NGX_LOG_ALERT, log, 0,
                       "%ui worker_connections are not enough",
@@ -1161,37 +1171,48 @@ ngx_get_connection(ngx_socket_t s, ngx_log_t *log)
         return NULL;
     }
 
+    /* 更新空闲连接池 */
     ngx_cycle->free_connections = c->data;
     ngx_cycle->free_connection_n--;
 
+    /* 将连接对象关联到文件描述符数组 */
     if (ngx_cycle->files && ngx_cycle->files[s] == NULL) {
         ngx_cycle->files[s] = c;
     }
 
+    /* 保存读写事件对象的指针 */
     rev = c->read;
     wev = c->write;
 
+    /* 初始化连接对象 */
     ngx_memzero(c, sizeof(ngx_connection_t));
 
+    /* 恢复读写事件对象的指针 */
     c->read = rev;
     c->write = wev;
     c->fd = s;
     c->log = log;
 
+    /* 保存读事件的instance标志位 */
     instance = rev->instance;
 
+    /* 初始化读写事件对象 */
     ngx_memzero(rev, sizeof(ngx_event_t));
     ngx_memzero(wev, sizeof(ngx_event_t));
 
+    /* 设置读写事件的instance标志位,用于检测过期事件 */
     rev->instance = !instance;
     wev->instance = !instance;
 
+    /* 初始化读写事件的index */
     rev->index = NGX_INVALID_INDEX;
     wev->index = NGX_INVALID_INDEX;
 
+    /* 读写事件都指向这个连接对象 */
     rev->data = c;
     wev->data = c;
 
+    /* 标识这是一个写事件 */
     wev->write = 1;
 
     return c;

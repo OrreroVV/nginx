@@ -82,16 +82,17 @@ ngx_str_t  ngx_http_html_default_types[] = {
 };
 
 
+// 定义HTTP模块的指令数组
 static ngx_command_t  ngx_http_commands[] = {
 
-    { ngx_string("http"),
-      NGX_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,
-      ngx_http_block,
-      0,
-      0,
-      NULL },
+    { ngx_string("http"),  // 指令名称
+      NGX_MAIN_CONF|NGX_CONF_BLOCK|NGX_CONF_NOARGS,  // 指令类型和标志
+      ngx_http_block,  // 处理函数
+      0,  // 配置项的偏移量
+      0,  // 配置项的偏移量
+      NULL },  // 配置项的处理函数
 
-      ngx_null_command
+      ngx_null_command  // 结束标志
 };
 
 
@@ -118,24 +119,25 @@ ngx_module_t  ngx_http_module = {
 };
 
 
+/* HTTP配置块解析入口函数，处理http{}配置块 */
 static char *
 ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     char                        *rv;
-    ngx_uint_t                   mi, m, s;
-    ngx_conf_t                   pcf;
-    ngx_http_module_t           *module;
-    ngx_http_conf_ctx_t         *ctx;
-    ngx_http_core_loc_conf_t    *clcf;
-    ngx_http_core_srv_conf_t   **cscfp;
-    ngx_http_core_main_conf_t   *cmcf;
+    ngx_uint_t                   mi, m, s;  // 模块索引和循环计数器
+    ngx_conf_t                   pcf;       // 保存原始配置上下文
+    ngx_http_module_t           *module;    // HTTP模块指针
+    ngx_http_conf_ctx_t         *ctx;       // HTTP配置上下文
+    ngx_http_core_loc_conf_t    *clcf;      // 核心location配置
+    ngx_http_core_srv_conf_t   **cscfp;     // 服务器配置数组
+    ngx_http_core_main_conf_t   *cmcf;      // HTTP核心主配置
 
+    /* 检查是否重复定义http块 */
     if (*(ngx_http_conf_ctx_t **) conf) {
         return "is duplicate";
     }
 
-    /* the main http context */
-
+    /* 创建主HTTP配置上下文 */
     ctx = ngx_pcalloc(cf->pool, sizeof(ngx_http_conf_ctx_t));
     if (ctx == NULL) {
         return NGX_CONF_ERROR;
@@ -143,48 +145,29 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     *(ngx_http_conf_ctx_t **) conf = ctx;
 
-
-    /* count the number of the http modules and set up their indices */
-
+    /* 统计HTTP模块数量并建立索引 */
     ngx_http_max_module = ngx_count_modules(cf->cycle, NGX_HTTP_MODULE);
 
-
-    /* the http main_conf context, it is the same in the all http contexts */
-
+    /* 创建main_conf配置数组：存储所有HTTP模块的主配置 */
     ctx->main_conf = ngx_pcalloc(cf->pool,
                                  sizeof(void *) * ngx_http_max_module);
     if (ctx->main_conf == NULL) {
         return NGX_CONF_ERROR;
     }
 
-
-    /*
-     * the http null srv_conf context, it is used to merge
-     * the server{}s' srv_conf's
-     */
-
+    /* 创建srv_conf配置数组：用于合并server级别的配置 */
     ctx->srv_conf = ngx_pcalloc(cf->pool, sizeof(void *) * ngx_http_max_module);
     if (ctx->srv_conf == NULL) {
         return NGX_CONF_ERROR;
     }
 
-
-    /*
-     * the http null loc_conf context, it is used to merge
-     * the server{}s' loc_conf's
-     */
-
+    /* 创建loc_conf配置数组：用于合并location级别的配置 */
     ctx->loc_conf = ngx_pcalloc(cf->pool, sizeof(void *) * ngx_http_max_module);
     if (ctx->loc_conf == NULL) {
         return NGX_CONF_ERROR;
     }
 
-
-    /*
-     * create the main_conf's, the null srv_conf's, and the null loc_conf's
-     * of the all http modules
-     */
-
+    /* 遍历所有HTTP模块，创建各模块的配置结构 */
     for (m = 0; cf->cycle->modules[m]; m++) {
         if (cf->cycle->modules[m]->type != NGX_HTTP_MODULE) {
             continue;
@@ -193,6 +176,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         module = cf->cycle->modules[m]->ctx;
         mi = cf->cycle->modules[m]->ctx_index;
 
+        /* 创建模块的主配置 */
         if (module->create_main_conf) {
             ctx->main_conf[mi] = module->create_main_conf(cf);
             if (ctx->main_conf[mi] == NULL) {
@@ -200,6 +184,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             }
         }
 
+        /* 创建模块的server配置 */
         if (module->create_srv_conf) {
             ctx->srv_conf[mi] = module->create_srv_conf(cf);
             if (ctx->srv_conf[mi] == NULL) {
@@ -207,6 +192,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             }
         }
 
+        /* 创建模块的location配置 */
         if (module->create_loc_conf) {
             ctx->loc_conf[mi] = module->create_loc_conf(cf);
             if (ctx->loc_conf[mi] == NULL) {
@@ -215,9 +201,11 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
+    /* 保存原始配置并设置当前上下文 */
     pcf = *cf;
     cf->ctx = ctx;
 
+    /* 执行各模块的预配置钩子 */
     for (m = 0; cf->cycle->modules[m]; m++) {
         if (cf->cycle->modules[m]->type != NGX_HTTP_MODULE) {
             continue;
@@ -232,8 +220,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
-    /* parse inside the http{} block */
-
+    /* 解析http块内的配置指令 */
     cf->module_type = NGX_HTTP_MODULE;
     cf->cmd_type = NGX_HTTP_MAIN_CONF;
     rv = ngx_conf_parse(cf, NULL);
@@ -242,11 +229,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         goto failed;
     }
 
-    /*
-     * init http{} main_conf's, merge the server{}s' srv_conf's
-     * and its location{}s' loc_conf's
-     */
-
+    /* 初始化各模块的主配置并合并server配置 */
     cmcf = ctx->main_conf[ngx_http_core_module.ctx_index];
     cscfp = cmcf->servers.elts;
 
@@ -258,8 +241,7 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         module = cf->cycle->modules[m]->ctx;
         mi = cf->cycle->modules[m]->ctx_index;
 
-        /* init http{} main_conf's */
-
+        /* 初始化模块的主配置 */
         if (module->init_main_conf) {
             rv = module->init_main_conf(cf, ctx->main_conf[mi]);
             if (rv != NGX_CONF_OK) {
@@ -267,17 +249,15 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
             }
         }
 
+        /* 合并server级别的配置 */
         rv = ngx_http_merge_servers(cf, cmcf, module, mi);
         if (rv != NGX_CONF_OK) {
             goto failed;
         }
     }
 
-
-    /* create location trees */
-
+    /* 为每个server创建location配置树 */
     for (s = 0; s < cmcf->servers.nelts; s++) {
-
         clcf = cscfp[s]->ctx->loc_conf[ngx_http_core_module.ctx_index];
 
         if (ngx_http_init_locations(cf, cscfp[s], clcf) != NGX_OK) {
@@ -289,16 +269,17 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
-
+    /* 初始化HTTP处理阶段 */
     if (ngx_http_init_phases(cf, cmcf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
+    /* 初始化请求头哈希表 */
     if (ngx_http_init_headers_in_hash(cf, cmcf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
-
+    /* 执行各模块的后配置钩子 */
     for (m = 0; cf->cycle->modules[m]; m++) {
         if (cf->cycle->modules[m]->type != NGX_HTTP_MODULE) {
             continue;
@@ -313,25 +294,20 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
+    /* 初始化变量系统 */
     if (ngx_http_variables_init_vars(cf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
-    /*
-     * http{}'s cf->ctx was needed while the configuration merging
-     * and in postconfiguration process
-     */
-
+    /* 恢复原始配置上下文 */
     *cf = pcf;
 
-
+    /* 初始化请求处理阶段处理器 */
     if (ngx_http_init_phase_handlers(cf, cmcf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
-
-    /* optimize the lists of ports, addresses and server names */
-
+    /* 优化服务器配置（端口、地址、服务器名称） */
     if (ngx_http_optimize_servers(cf, cmcf, cmcf->ports) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
@@ -339,9 +315,8 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     return NGX_CONF_OK;
 
 failed:
-
+    /* 出错时恢复原始配置 */
     *cf = pcf;
-
     return rv;
 }
 
@@ -450,6 +425,23 @@ ngx_http_init_headers_in_hash(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
 }
 
 
+/**
+ * 初始化阶段处理
+ *
+ * nginx在接收并解析完请求行，请求头之后，就会依次调用各个phase handler
+ *
+ * 	NGX_HTTP_POST_READ_PHASE	读取请求内容阶段
+	NGX_HTTP_SERVER_REWRITE_PHASE	Server请求地址重写阶段
+	NGX_HTTP_FIND_CONFIG_PHASE	配置查找阶段
+	NGX_HTTP_REWRITE_PHASE	Location请求地址重写阶段
+	NGX_HTTP_POST_REWRITE_PHASE	请求地址重写提交阶段
+	NGX_HTTP_PREACCESS_PHASE	访问权限检查准备阶段
+	NGX_HTTP_ACCESS_PHASE	访问权限检查阶段
+	NGX_HTTP_POST_ACCESS_PHASE	访问权限检查提交阶段
+	NGX_HTTP_TRY_FILES_PHASE	配置项try_files处理阶段
+	NGX_HTTP_CONTENT_PHASE	内容产生阶段
+	NGX_HTTP_LOG_PHASE	日志模块处理阶段
+ */
 static ngx_int_t
 ngx_http_init_phase_handlers(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
 {
@@ -460,98 +452,108 @@ ngx_http_init_phase_handlers(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf)
     ngx_http_phase_handler_t   *ph;
     ngx_http_phase_handler_pt   checker;
 
+    /* 初始化阶段索引为无效值 */
     cmcf->phase_engine.server_rewrite_index = (ngx_uint_t) -1;
     cmcf->phase_engine.location_rewrite_index = (ngx_uint_t) -1;
-    find_config_index = 0;
-    use_rewrite = cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers.nelts ? 1 : 0;
-    use_access = cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers.nelts ? 1 : 0;
+    
+    /* 计算需要创建的阶段处理器总数 */
+    find_config_index = 0;  // 查找配置阶段的起始索引
+    use_rewrite = cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers.nelts ? 1 : 0;  // 是否使用重写阶段
+    use_access = cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers.nelts ? 1 : 0;   // 是否使用访问控制阶段
 
+    /* 基础阶段数 = 查找配置阶段 + 后重写阶段（如果使用） + 后访问阶段（如果使用） */
     n = 1                  /* find config phase */
         + use_rewrite      /* post rewrite phase */
         + use_access;      /* post access phase */
 
+    /* 累加所有阶段（除日志阶段）的处理函数数量 */
     for (i = 0; i < NGX_HTTP_LOG_PHASE; i++) {
         n += cmcf->phases[i].handlers.nelts;
     }
 
+    /* 分配阶段处理器数组内存（额外加一个void*用于对齐） */
     ph = ngx_pcalloc(cf->pool,
                      n * sizeof(ngx_http_phase_handler_t) + sizeof(void *));
     if (ph == NULL) {
         return NGX_ERROR;
     }
 
-    cmcf->phase_engine.handlers = ph;
-    n = 0;
+    cmcf->phase_engine.handlers = ph;  // 将处理器数组挂载到核心配置
+    n = 0;  // 重置当前处理器索引
 
+    /* 遍历所有HTTP阶段（除日志阶段） */
     for (i = 0; i < NGX_HTTP_LOG_PHASE; i++) {
-        h = cmcf->phases[i].handlers.elts;
+        h = cmcf->phases[i].handlers.elts;  // 获取当前阶段的处理函数数组
 
         switch (i) {
-
+        /* 服务器重写阶段 */
         case NGX_HTTP_SERVER_REWRITE_PHASE:
             if (cmcf->phase_engine.server_rewrite_index == (ngx_uint_t) -1) {
-                cmcf->phase_engine.server_rewrite_index = n;
+                cmcf->phase_engine.server_rewrite_index = n;  // 记录服务器重写阶段起始索引
             }
-            checker = ngx_http_core_rewrite_phase;
-
+            checker = ngx_http_core_rewrite_phase;  // 设置检查器为重写阶段处理函数
             break;
 
+        /* 查找配置阶段 */
         case NGX_HTTP_FIND_CONFIG_PHASE:
-            find_config_index = n;
+            find_config_index = n;  // 记录查找配置阶段的索引位置
+            ph->checker = ngx_http_core_find_config_phase;  // 设置专用检查器
+            n++;  // 递增总处理器数
+            ph++;  // 移动处理器指针
+            continue;  // 跳过后续处理直接进入下一循环
 
-            ph->checker = ngx_http_core_find_config_phase;
-            n++;
-            ph++;
-
-            continue;
-
+        /* 位置重写阶段 */
         case NGX_HTTP_REWRITE_PHASE:
             if (cmcf->phase_engine.location_rewrite_index == (ngx_uint_t) -1) {
-                cmcf->phase_engine.location_rewrite_index = n;
+                cmcf->phase_engine.location_rewrite_index = n;  // 记录位置重写阶段起始索引
             }
             checker = ngx_http_core_rewrite_phase;
-
             break;
 
+        /* 后重写阶段 */
         case NGX_HTTP_POST_REWRITE_PHASE:
             if (use_rewrite) {
-                ph->checker = ngx_http_core_post_rewrite_phase;
-                ph->next = find_config_index;
-                n++;
-                ph++;
+                ph->checker = ngx_http_core_post_rewrite_phase;  // 设置后重写检查器
+                ph->next = find_config_index;  // 指向查找配置阶段
+                n++;     // 递增总处理器数
+                ph++;    // 移动处理器指针
             }
+            continue;  // 跳过后续处理直接进入下一循环
 
-            continue;
-
+        /* 访问控制阶段 */
         case NGX_HTTP_ACCESS_PHASE:
-            checker = ngx_http_core_access_phase;
-            n++;
+            checker = ngx_http_core_access_phase;  // 设置访问控制检查器
+            n++;  // 为访问控制阶段预留位置
             break;
 
+        /* 后访问控制阶段 */
         case NGX_HTTP_POST_ACCESS_PHASE:
             if (use_access) {
-                ph->checker = ngx_http_core_post_access_phase;
-                ph->next = n;
-                ph++;
+                ph->checker = ngx_http_core_post_access_phase;  // 设置后访问检查器
+                ph->next = n;  // 指向下一个阶段
+                ph++;    // 移动处理器指针
             }
+            continue;  // 跳过后续处理直接进入下一循环
 
-            continue;
-
+        /* 内容生成阶段 */
         case NGX_HTTP_CONTENT_PHASE:
-            checker = ngx_http_core_content_phase;
+            checker = ngx_http_core_content_phase;  // 设置内容生成检查器
             break;
 
+        /* 其他通用阶段 */
         default:
-            checker = ngx_http_core_generic_phase;
+            checker = ngx_http_core_generic_phase;  // 使用通用阶段处理函数
         }
 
+        /* 累加当前阶段的处理函数数量 */
         n += cmcf->phases[i].handlers.nelts;
 
+        /* 反向遍历处理函数（保持原始顺序） */
         for (j = cmcf->phases[i].handlers.nelts - 1; j >= 0; j--) {
-            ph->checker = checker;
-            ph->handler = h[j];
-            ph->next = n;
-            ph++;
+            ph->checker = checker;     // 设置阶段检查器
+            ph->handler = h[j];        // 设置实际处理函数
+            ph->next = n;              // 设置下一个阶段索引
+            ph++;                      // 移动处理器指针
         }
     }
 
@@ -1484,50 +1486,53 @@ ngx_http_add_server(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
 }
 
 
+// 定义一个函数用于优化服务器配置
 static ngx_int_t
 ngx_http_optimize_servers(ngx_conf_t *cf, ngx_http_core_main_conf_t *cmcf,
     ngx_array_t *ports)
 {
-    ngx_uint_t             p, a;
-    ngx_http_conf_port_t  *port;
-    ngx_http_conf_addr_t  *addr;
+    ngx_uint_t             p, a; // 定义循环变量
+    ngx_http_conf_port_t  *port; // 定义指向端口配置的指针
+    ngx_http_conf_addr_t  *addr; // 定义指向地址配置的指针
 
-    if (ports == NULL) {
+    if (ports == NULL) { // 如果端口数组为空，直接返回成功
         return NGX_OK;
     }
 
-    port = ports->elts;
-    for (p = 0; p < ports->nelts; p++) {
+    port = ports->elts; // 获取端口数组的元素
+    for (p = 0; p < ports->nelts; p++) { // 遍历每个端口
 
+        // 对每个端口的地址进行排序
         ngx_sort(port[p].addrs.elts, (size_t) port[p].addrs.nelts,
                  sizeof(ngx_http_conf_addr_t), ngx_http_cmp_conf_addrs);
 
         /*
-         * check whether all name-based servers have the same
-         * configuration as a default server for given address:port
+         * 检查所有基于名称的服务器是否与给定地址:端口的默认服务器具有相同的配置
          */
 
-        addr = port[p].addrs.elts;
-        for (a = 0; a < port[p].addrs.nelts; a++) {
+        addr = port[p].addrs.elts; // 获取地址数组的元素
+        for (a = 0; a < port[p].addrs.nelts; a++) { // 遍历每个地址
 
-            if (addr[a].servers.nelts > 1
+            if (addr[a].servers.nelts > 1 // 如果服务器数量大于1
 #if (NGX_PCRE)
-                || addr[a].default_server->captures
+                || addr[a].default_server->captures // 或者默认服务器有捕获
 #endif
                )
             {
+                // 初始化服务器名称
                 if (ngx_http_server_names(cf, cmcf, &addr[a]) != NGX_OK) {
-                    return NGX_ERROR;
+                    return NGX_ERROR; // 如果失败，返回错误
                 }
             }
         }
 
+        // 初始化监听
         if (ngx_http_init_listening(cf, &port[p]) != NGX_OK) {
-            return NGX_ERROR;
+            return NGX_ERROR; // 如果失败，返回错误
         }
     }
 
-    return NGX_OK;
+    return NGX_OK; // 成功返回
 }
 
 
@@ -1736,73 +1741,72 @@ ngx_http_cmp_dns_wildcards(const void *one, const void *two)
 static ngx_int_t
 ngx_http_init_listening(ngx_conf_t *cf, ngx_http_conf_port_t *port)
 {
-    ngx_uint_t                 i, last, bind_wildcard;
-    ngx_listening_t           *ls;
-    ngx_http_port_t           *hport;
-    ngx_http_conf_addr_t      *addr;
+    ngx_uint_t                 i, last, bind_wildcard; // 定义变量i, last和bind_wildcard
+    ngx_listening_t           *ls; // 定义指向监听对象的指针
+    ngx_http_port_t           *hport; // 定义指向HTTP端口的指针
+    ngx_http_conf_addr_t      *addr; // 定义指向地址配置的指针
 
-    addr = port->addrs.elts;
-    last = port->addrs.nelts;
+    addr = port->addrs.elts; // 获取地址数组的元素
+    last = port->addrs.nelts; // 获取地址数组的元素数量
 
     /*
-     * If there is a binding to an "*:port" then we need to bind() to
-     * the "*:port" only and ignore other implicit bindings.  The bindings
-     * have been already sorted: explicit bindings are on the start, then
-     * implicit bindings go, and wildcard binding is in the end.
+     * 如果有绑定到“*:port”的地址，则只需绑定到“*:port”，
+     * 并忽略其他隐式绑定。绑定已经排序：显式绑定在前，
+     * 然后是隐式绑定，通配符绑定在最后。
      */
 
-    if (addr[last - 1].opt.wildcard) {
-        addr[last - 1].opt.bind = 1;
-        bind_wildcard = 1;
+    if (addr[last - 1].opt.wildcard) { // 检查最后一个地址是否为通配符
+        addr[last - 1].opt.bind = 1; // 设置通配符地址的绑定选项
+        bind_wildcard = 1; // 标记已绑定通配符
 
     } else {
-        bind_wildcard = 0;
+        bind_wildcard = 0; // 未绑定通配符
     }
 
-    i = 0;
+    i = 0; // 初始化索引
 
-    while (i < last) {
+    while (i < last) { // 遍历地址数组
 
-        if (bind_wildcard && !addr[i].opt.bind) {
-            i++;
-            continue;
+        if (bind_wildcard && !addr[i].opt.bind) { // 如果绑定了通配符且当前地址未绑定
+            i++; // 跳过当前地址
+            continue; // 继续下一个循环
         }
 
-        ls = ngx_http_add_listening(cf, &addr[i]);
-        if (ls == NULL) {
-            return NGX_ERROR;
+        ls = ngx_http_add_listening(cf, &addr[i]); // 添加监听
+        if (ls == NULL) { // 检查监听是否成功
+            return NGX_ERROR; // 返回错误
         }
 
-        hport = ngx_pcalloc(cf->pool, sizeof(ngx_http_port_t));
-        if (hport == NULL) {
-            return NGX_ERROR;
+        hport = ngx_pcalloc(cf->pool, sizeof(ngx_http_port_t)); // 分配HTTP端口结构
+        if (hport == NULL) { // 检查分配是否成功
+            return NGX_ERROR; // 返回错误
         }
 
-        ls->servers = hport;
+        ls->servers = hport; // 设置监听的服务器
 
-        hport->naddrs = i + 1;
+        hport->naddrs = i + 1; // 设置地址数量
 
-        switch (ls->sockaddr->sa_family) {
+        switch (ls->sockaddr->sa_family) { // 根据地址族进行处理
 
 #if (NGX_HAVE_INET6)
-        case AF_INET6:
-            if (ngx_http_add_addrs6(cf, hport, addr) != NGX_OK) {
-                return NGX_ERROR;
+        case AF_INET6: // 处理IPv6地址
+            if (ngx_http_add_addrs6(cf, hport, addr) != NGX_OK) { // 添加IPv6地址
+                return NGX_ERROR; // 返回错误
             }
             break;
 #endif
-        default: /* AF_INET */
-            if (ngx_http_add_addrs(cf, hport, addr) != NGX_OK) {
-                return NGX_ERROR;
+        default: /* AF_INET */ // 处理IPv4地址
+            if (ngx_http_add_addrs(cf, hport, addr) != NGX_OK) { // 添加IPv4地址
+                return NGX_ERROR; // 返回错误
             }
             break;
         }
 
-        addr++;
-        last--;
+        addr++; // 移动到下一个地址
+        last--; // 减少剩余地址数量
     }
 
-    return NGX_OK;
+    return NGX_OK; // 成功返回
 }
 
 
@@ -1813,20 +1817,27 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     ngx_http_core_loc_conf_t  *clcf;
     ngx_http_core_srv_conf_t  *cscf;
 
+    // 创建一个新的监听对象，设置其sockaddr和socklen
     ls = ngx_create_listening(cf, addr->opt.sockaddr, addr->opt.socklen);
     if (ls == NULL) {
         return NULL;
     }
 
+    // 启用地址字符串表示
     ls->addr_ntop = 1;
 
+    // 设置连接处理函数为ngx_http_init_connection
     ls->handler = ngx_http_init_connection;
 
+    // 获取默认服务器配置
     cscf = addr->default_server;
+    // 设置连接池大小
     ls->pool_size = cscf->connection_pool_size;
 
+    // 获取location配置
     clcf = cscf->ctx->loc_conf[ngx_http_core_module.ctx_index];
 
+    // 设置日志相关参数
     ls->logp = clcf->error_log;
     ls->log.data = &ls->addr_text;
     ls->log.handler = ngx_accept_log_error;
@@ -1835,6 +1846,7 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     {
     ngx_iocp_conf_t  *iocpcf = NULL;
 
+    // Windows平台下IOCP相关配置
     if (ngx_get_conf(cf->cycle->conf_ctx, ngx_events_module)) {
         iocpcf = ngx_event_get_conf(cf->cycle->conf_ctx, ngx_iocp_module);
     }
@@ -1844,11 +1856,13 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     }
 #endif
 
+    // 设置socket相关选项
     ls->type = addr->opt.type;
     ls->backlog = addr->opt.backlog;
     ls->rcvbuf = addr->opt.rcvbuf;
     ls->sndbuf = addr->opt.sndbuf;
 
+    // 设置keepalive相关参数
     ls->keepalive = addr->opt.so_keepalive;
 #if (NGX_HAVE_KEEPALIVE_TUNABLE)
     ls->keepidle = addr->opt.tcp_keepidle;
@@ -1856,32 +1870,40 @@ ngx_http_add_listening(ngx_conf_t *cf, ngx_http_conf_addr_t *addr)
     ls->keepcnt = addr->opt.tcp_keepcnt;
 #endif
 
+    // FreeBSD平台accept filter配置
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined SO_ACCEPTFILTER)
     ls->accept_filter = addr->opt.accept_filter;
 #endif
 
+    // Linux平台deferred accept配置
 #if (NGX_HAVE_DEFERRED_ACCEPT && defined TCP_DEFER_ACCEPT)
     ls->deferred_accept = addr->opt.deferred_accept;
 #endif
 
+    // IPv6相关选项
 #if (NGX_HAVE_INET6)
     ls->ipv6only = addr->opt.ipv6only;
 #endif
 
+    // FreeBSD路由表选择配置
 #if (NGX_HAVE_SETFIB)
     ls->setfib = addr->opt.setfib;
 #endif
 
+    // TCP Fast Open配置
 #if (NGX_HAVE_TCP_FASTOPEN)
     ls->fastopen = addr->opt.fastopen;
 #endif
 
+    // 端口复用配置
 #if (NGX_HAVE_REUSEPORT)
     ls->reuseport = addr->opt.reuseport;
 #endif
 
+    // 是否为通配符地址
     ls->wildcard = addr->opt.wildcard;
 
+    // HTTP/3 QUIC协议支持
 #if (NGX_HTTP_V3)
     ls->quic = addr->opt.quic;
 #endif
@@ -1894,65 +1916,67 @@ static ngx_int_t
 ngx_http_add_addrs(ngx_conf_t *cf, ngx_http_port_t *hport,
     ngx_http_conf_addr_t *addr)
 {
-    ngx_uint_t                 i;
-    ngx_http_in_addr_t        *addrs;
-    struct sockaddr_in        *sin;
-    ngx_http_virtual_names_t  *vn;
+    ngx_uint_t                 i; // 定义循环变量i
+    ngx_http_in_addr_t        *addrs; // 定义指向地址结构的指针
+    struct sockaddr_in        *sin; // 定义指向IPv4地址结构的指针
+    ngx_http_virtual_names_t  *vn; // 定义指向虚拟主机名结构的指针
 
+    // 为地址数组分配内存
     hport->addrs = ngx_pcalloc(cf->pool,
                                hport->naddrs * sizeof(ngx_http_in_addr_t));
     if (hport->addrs == NULL) {
-        return NGX_ERROR;
+        return NGX_ERROR; // 内存分配失败，返回错误
     }
 
-    addrs = hport->addrs;
+    addrs = hport->addrs; // 将分配的内存地址赋值给addrs
 
-    for (i = 0; i < hport->naddrs; i++) {
+    for (i = 0; i < hport->naddrs; i++) { // 遍历每个地址
 
-        sin = (struct sockaddr_in *) addr[i].opt.sockaddr;
-        addrs[i].addr = sin->sin_addr.s_addr;
-        addrs[i].conf.default_server = addr[i].default_server;
+        sin = (struct sockaddr_in *) addr[i].opt.sockaddr; // 获取IPv4地址
+        addrs[i].addr = sin->sin_addr.s_addr; // 设置地址
+        addrs[i].conf.default_server = addr[i].default_server; // 设置默认服务器
 #if (NGX_HTTP_SSL)
-        addrs[i].conf.ssl = addr[i].opt.ssl;
+        addrs[i].conf.ssl = addr[i].opt.ssl; // 设置SSL选项
 #endif
 #if (NGX_HTTP_V2)
-        addrs[i].conf.http2 = addr[i].opt.http2;
+        addrs[i].conf.http2 = addr[i].opt.http2; // 设置HTTP/2选项
 #endif
 #if (NGX_HTTP_V3)
-        addrs[i].conf.quic = addr[i].opt.quic;
+        addrs[i].conf.quic = addr[i].opt.quic; // 设置QUIC选项
 #endif
-        addrs[i].conf.proxy_protocol = addr[i].opt.proxy_protocol;
+        addrs[i].conf.proxy_protocol = addr[i].opt.proxy_protocol; // 设置代理协议选项
 
+        // 检查是否有虚拟主机名配置
         if (addr[i].hash.buckets == NULL
             && (addr[i].wc_head == NULL
                 || addr[i].wc_head->hash.buckets == NULL)
             && (addr[i].wc_tail == NULL
                 || addr[i].wc_tail->hash.buckets == NULL)
 #if (NGX_PCRE)
-            && addr[i].nregex == 0
+            && addr[i].nregex == 0 // 正则表达式数量为0
 #endif
             )
         {
-            continue;
+            continue; // 如果没有虚拟主机名配置，继续下一个循环
         }
 
-        vn = ngx_palloc(cf->pool, sizeof(ngx_http_virtual_names_t));
+        vn = ngx_palloc(cf->pool, sizeof(ngx_http_virtual_names_t)); // 分配虚拟主机名结构的内存
         if (vn == NULL) {
-            return NGX_ERROR;
+            return NGX_ERROR; // 内存分配失败，返回错误
         }
 
-        addrs[i].conf.virtual_names = vn;
+        addrs[i].conf.virtual_names = vn; // 设置虚拟主机名配置
 
-        vn->names.hash = addr[i].hash;
-        vn->names.wc_head = addr[i].wc_head;
-        vn->names.wc_tail = addr[i].wc_tail;
+        vn->names.hash = addr[i].hash; // 设置哈希表
+        vn->names.wc_head = addr[i].wc_head; // 设置通配符头
+        vn->names.wc_tail = addr[i].wc_tail; // 设置通配符尾
 #if (NGX_PCRE)
-        vn->nregex = addr[i].nregex;
-        vn->regex = addr[i].regex;
+        vn->nregex = addr[i].nregex; // 设置正则表达式数量
+        vn->regex = addr[i].regex; // 设置正则表达式
 #endif
     }
 
-    return NGX_OK;
+    return NGX_OK; // 成功返回
 }
 
 
@@ -1962,65 +1986,67 @@ static ngx_int_t
 ngx_http_add_addrs6(ngx_conf_t *cf, ngx_http_port_t *hport,
     ngx_http_conf_addr_t *addr)
 {
-    ngx_uint_t                 i;
-    ngx_http_in6_addr_t       *addrs6;
-    struct sockaddr_in6       *sin6;
-    ngx_http_virtual_names_t  *vn;
+    ngx_uint_t                 i; // 定义循环变量i
+    ngx_http_in6_addr_t       *addrs6; // 定义指向IPv6地址结构的指针
+    struct sockaddr_in6       *sin6; // 定义指向IPv6地址结构的指针
+    ngx_http_virtual_names_t  *vn; // 定义指向虚拟主机名结构的指针
 
+    // 为IPv6地址数组分配内存
     hport->addrs = ngx_pcalloc(cf->pool,
                                hport->naddrs * sizeof(ngx_http_in6_addr_t));
     if (hport->addrs == NULL) {
-        return NGX_ERROR;
+        return NGX_ERROR; // 内存分配失败，返回错误
     }
 
-    addrs6 = hport->addrs;
+    addrs6 = hport->addrs; // 将分配的内存地址赋值给addrs6
 
-    for (i = 0; i < hport->naddrs; i++) {
+    for (i = 0; i < hport->naddrs; i++) { // 遍历每个IPv6地址
 
-        sin6 = (struct sockaddr_in6 *) addr[i].opt.sockaddr;
-        addrs6[i].addr6 = sin6->sin6_addr;
-        addrs6[i].conf.default_server = addr[i].default_server;
+        sin6 = (struct sockaddr_in6 *) addr[i].opt.sockaddr; // 获取IPv6地址
+        addrs6[i].addr6 = sin6->sin6_addr; // 设置IPv6地址
+        addrs6[i].conf.default_server = addr[i].default_server; // 设置默认服务器
 #if (NGX_HTTP_SSL)
-        addrs6[i].conf.ssl = addr[i].opt.ssl;
+        addrs6[i].conf.ssl = addr[i].opt.ssl; // 设置SSL选项
 #endif
 #if (NGX_HTTP_V2)
-        addrs6[i].conf.http2 = addr[i].opt.http2;
+        addrs6[i].conf.http2 = addr[i].opt.http2; // 设置HTTP/2选项
 #endif
 #if (NGX_HTTP_V3)
-        addrs6[i].conf.quic = addr[i].opt.quic;
+        addrs6[i].conf.quic = addr[i].opt.quic; // 设置QUIC选项
 #endif
-        addrs6[i].conf.proxy_protocol = addr[i].opt.proxy_protocol;
+        addrs6[i].conf.proxy_protocol = addr[i].opt.proxy_protocol; // 设置代理协议选项
 
+        // 检查是否有虚拟主机名配置
         if (addr[i].hash.buckets == NULL
             && (addr[i].wc_head == NULL
                 || addr[i].wc_head->hash.buckets == NULL)
             && (addr[i].wc_tail == NULL
                 || addr[i].wc_tail->hash.buckets == NULL)
 #if (NGX_PCRE)
-            && addr[i].nregex == 0
+            && addr[i].nregex == 0 // 正则表达式数量为0
 #endif
             )
         {
-            continue;
+            continue; // 如果没有虚拟主机名配置，继续下一个循环
         }
 
-        vn = ngx_palloc(cf->pool, sizeof(ngx_http_virtual_names_t));
+        vn = ngx_palloc(cf->pool, sizeof(ngx_http_virtual_names_t)); // 分配虚拟主机名结构的内存
         if (vn == NULL) {
-            return NGX_ERROR;
+            return NGX_ERROR; // 内存分配失败，返回错误
         }
 
-        addrs6[i].conf.virtual_names = vn;
+        addrs6[i].conf.virtual_names = vn; // 设置虚拟主机名配置
 
-        vn->names.hash = addr[i].hash;
-        vn->names.wc_head = addr[i].wc_head;
-        vn->names.wc_tail = addr[i].wc_tail;
+        vn->names.hash = addr[i].hash; // 设置哈希表
+        vn->names.wc_head = addr[i].wc_head; // 设置通配符头
+        vn->names.wc_tail = addr[i].wc_tail; // 设置通配符尾
 #if (NGX_PCRE)
-        vn->nregex = addr[i].nregex;
-        vn->regex = addr[i].regex;
+        vn->nregex = addr[i].nregex; // 设置正则表达式数量
+        vn->regex = addr[i].regex; // 设置正则表达式
 #endif
     }
 
-    return NGX_OK;
+    return NGX_OK; // 成功返回
 }
 
 #endif

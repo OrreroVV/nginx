@@ -15,25 +15,38 @@
 static void ngx_shmtx_wakeup(ngx_shmtx_t *mtx);
 
 
+/**
+ * @brief 创建共享内存互斥锁
+ * @param mtx 互斥锁结构体指针
+ * @param addr 共享内存中的互斥锁数据结构指针
+ * @param name 互斥锁名称
+ * @return NGX_OK 成功，NGX_ERROR 失败
+ */
 ngx_int_t
 ngx_shmtx_create(ngx_shmtx_t *mtx, ngx_shmtx_sh_t *addr, u_char *name)
 {
+    /* 设置锁的地址指向共享内存中的lock变量 */
     mtx->lock = &addr->lock;
 
+    /* 如果spin被设置为-1,表示不使用自旋锁,直接返回 */
     if (mtx->spin == (ngx_uint_t) -1) {
         return NGX_OK;
     }
 
+    /* 设置自旋次数为2048 */
     mtx->spin = 2048;
 
 #if (NGX_HAVE_POSIX_SEM)
 
+    /* 设置等待标志地址指向共享内存中的wait变量 */
     mtx->wait = &addr->wait;
 
+    /* 初始化POSIX信号量,第二个参数1表示进程间共享,第三个参数0表示初始值 */
     if (sem_init(&mtx->sem, 1, 0) == -1) {
         ngx_log_error(NGX_LOG_ALERT, ngx_cycle->log, ngx_errno,
                       "sem_init() failed");
     } else {
+        /* 信号量初始化成功,设置semaphore标志为1 */
         mtx->semaphore = 1;
     }
 

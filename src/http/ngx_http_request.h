@@ -376,231 +376,230 @@ typedef void (*ngx_http_event_handler_pt)(ngx_http_request_t *r);
 
 
 struct ngx_http_request_s {
-    uint32_t                          signature;         /* "HTTP" */
+    uint32_t                          signature;         /* "HTTP" 请求签名 */
 
-    ngx_connection_t                 *connection;
+    ngx_connection_t                 *connection;        /* 连接对象 */
 
-    void                            **ctx;
-    void                            **main_conf;
-    void                            **srv_conf;
-    void                            **loc_conf;
+    void                            **ctx;               /* 模块上下文 */
+    void                            **main_conf;         /* main级别配置 */
+    void                            **srv_conf;          /* server级别配置 */
+    void                            **loc_conf;          /* location级别配置 */
 
-    ngx_http_event_handler_pt         read_event_handler;
-    ngx_http_event_handler_pt         write_event_handler;
+    ngx_http_event_handler_pt         read_event_handler; /* 读事件处理函数 */
+    ngx_http_event_handler_pt         write_event_handler; /* 写事件处理函数 */
 
 #if (NGX_HTTP_CACHE)
-    ngx_http_cache_t                 *cache;
+    ngx_http_cache_t                 *cache;             /* 缓存对象 */
 #endif
 
-    ngx_http_upstream_t              *upstream;
-    ngx_array_t                      *upstream_states;
+    ngx_http_upstream_t              *upstream;          /* 上游对象 */
+    ngx_array_t                      *upstream_states;   /* 上游状态数组 */
                                          /* of ngx_http_upstream_state_t */
 
-    ngx_pool_t                       *pool;
-    ngx_buf_t                        *header_in;
+    ngx_pool_t                       *pool;              /* 内存池 */
+    ngx_buf_t                        *header_in;         /* 输入头缓冲区 */
 
-    ngx_http_headers_in_t             headers_in;
-    ngx_http_headers_out_t            headers_out;
+    ngx_http_headers_in_t             headers_in;        /* 输入头 */
+    ngx_http_headers_out_t            headers_out;       /* 输出头 */
 
-    ngx_http_request_body_t          *request_body;
+    ngx_http_request_body_t          *request_body;      /* 请求体 */
 
-    time_t                            lingering_time;
-    time_t                            start_sec;
-    ngx_msec_t                        start_msec;
+    time_t                            lingering_time;    /* 持续时间 */
+    time_t                            start_sec;         /* 开始时间（秒） */
+    ngx_msec_t                        start_msec;        /* 开始时间（毫秒） */
 
-    ngx_uint_t                        method;
-    ngx_uint_t                        http_version;
+    ngx_uint_t                        method;            /* 请求方法 */
+    ngx_uint_t                        http_version;      /* HTTP版本 */
 
-    ngx_str_t                         request_line;
-    ngx_str_t                         uri;
-    ngx_str_t                         args;
-    ngx_str_t                         exten;
-    ngx_str_t                         unparsed_uri;
+    ngx_str_t                         request_line;      /* 请求行 */
+    ngx_str_t                         uri;               /* URI */
+    ngx_str_t                         args;              /* 参数 */
+    ngx_str_t                         exten;             /* 扩展名 */
+    ngx_str_t                         unparsed_uri;      /* 未解析的URI */
 
-    ngx_str_t                         method_name;
-    ngx_str_t                         http_protocol;
-    ngx_str_t                         schema;
+    ngx_str_t                         method_name;       /* 方法名 */
+    ngx_str_t                         http_protocol;     /* HTTP协议 */
+    ngx_str_t                         schema;            /* 协议方案 */
 
-    ngx_chain_t                      *out;
-    ngx_http_request_t               *main;
-    ngx_http_request_t               *parent;
-    ngx_http_postponed_request_t     *postponed;
-    ngx_http_post_subrequest_t       *post_subrequest;
-    ngx_http_posted_request_t        *posted_requests;
+    ngx_chain_t                      *out;               /* 输出链 */
+    ngx_http_request_t               *main;              /* 主请求 */
+    ngx_http_request_t               *parent;            /* 父请求 */
+    ngx_http_postponed_request_t     *postponed;         /* 延迟请求 */
+    ngx_http_post_subrequest_t       *post_subrequest;   /* 子请求回调 */
+    ngx_http_posted_request_t        *posted_requests;   /* 已发布请求 */
 
-    ngx_int_t                         phase_handler;
-    ngx_http_handler_pt               content_handler;
-    ngx_uint_t                        access_code;
+    ngx_int_t                         phase_handler;     /* 阶段处理器 */
+    ngx_http_handler_pt               content_handler;   /* 内容处理器 */
+    ngx_uint_t                        access_code;       /* 访问码 */
 
-    ngx_http_variable_value_t        *variables;
+    ngx_http_variable_value_t        *variables;         /* 变量 */
 
 #if (NGX_PCRE)
-    ngx_uint_t                        ncaptures;
-    int                              *captures;
-    u_char                           *captures_data;
+    ngx_uint_t                        ncaptures;         /* 捕获数量 */
+    int                              *captures;          /* 捕获数组 */
+    u_char                           *captures_data;     /* 捕获数据 */
 #endif
 
-    size_t                            limit_rate;
-    size_t                            limit_rate_after;
+    size_t                            limit_rate;        /* 限速 */
+    size_t                            limit_rate_after;  /* 限速后 */
 
-    /* used to learn the Apache compatible response length without a header */
-    size_t                            header_size;
+    /* 用于计算没有头部的Apache兼容响应长度 */
+    size_t                            header_size;       /* 头部大小 */
 
-    off_t                             request_length;
+    off_t                             request_length;    /* 请求长度 */
 
-    ngx_uint_t                        err_status;
+    ngx_uint_t                        err_status;        /* 错误状态 */
 
-    ngx_http_connection_t            *http_connection;
-    ngx_http_v2_stream_t             *stream;
-    ngx_http_v3_parse_t              *v3_parse;
+    ngx_http_connection_t            *http_connection;   /* HTTP连接 */
+    ngx_http_v2_stream_t             *stream;            /* HTTP/2流 */
+    ngx_http_v3_parse_t              *v3_parse;          /* HTTP/3解析 */
 
-    ngx_http_log_handler_pt           log_handler;
+    ngx_http_log_handler_pt           log_handler;       /* 日志处理器 */
 
-    ngx_http_cleanup_t               *cleanup;
+    ngx_http_cleanup_t               *cleanup;           /* 清理函数 */
 
-    unsigned                          count:16;
-    unsigned                          subrequests:8;
-    unsigned                          blocked:8;
+    unsigned                          count:16;          /* 计数 */
+    unsigned                          subrequests:8;     /* 子请求数量 */
+    unsigned                          blocked:8;         /* 阻塞标志 */
 
-    unsigned                          aio:1;
+    unsigned                          aio:1;             /* 异步I/O标志 */
 
-    unsigned                          http_state:4;
+    unsigned                          http_state:4;      /* HTTP状态 */
 
-    /* URI with "/." and on Win32 with "//" */
-    unsigned                          complex_uri:1;
+    /* URI包含"/."和在Win32上包含"//" */
+    unsigned                          complex_uri:1;     /* 复杂URI */
 
-    /* URI with "%" */
-    unsigned                          quoted_uri:1;
+    /* URI包含"%" */
+    unsigned                          quoted_uri:1;      /* 引号URI */
 
-    /* URI with "+" */
-    unsigned                          plus_in_uri:1;
+    /* URI包含"+" */
+    unsigned                          plus_in_uri:1;     /* URI中包含加号 */
 
-    /* URI with empty path */
-    unsigned                          empty_path_in_uri:1;
+    /* URI包含空路径 */
+    unsigned                          empty_path_in_uri:1; /* URI中包含空路径 */
 
-    unsigned                          invalid_header:1;
+    unsigned                          invalid_header:1;  /* 无效头部 */
 
-    unsigned                          add_uri_to_alias:1;
-    unsigned                          valid_location:1;
-    unsigned                          valid_unparsed_uri:1;
-    unsigned                          uri_changed:1;
-    unsigned                          uri_changes:4;
+    unsigned                          add_uri_to_alias:1; /* 添加URI到别名 */
+    unsigned                          valid_location:1;  /* 有效位置 */
+    unsigned                          valid_unparsed_uri:1; /* 有效未解析URI */
+    unsigned                          uri_changed:1;     /* URI已更改 */
+    unsigned                          uri_changes:4;     /* URI更改次数 */
 
-    unsigned                          request_body_in_single_buf:1;
-    unsigned                          request_body_in_file_only:1;
-    unsigned                          request_body_in_persistent_file:1;
-    unsigned                          request_body_in_clean_file:1;
-    unsigned                          request_body_file_group_access:1;
-    unsigned                          request_body_file_log_level:3;
-    unsigned                          request_body_no_buffering:1;
+    unsigned                          request_body_in_single_buf:1; /* 请求体在单一缓冲区中 */
+    unsigned                          request_body_in_file_only:1; /* 请求体仅在文件中 */
+    unsigned                          request_body_in_persistent_file:1; /* 请求体在持久文件中 */
+    unsigned                          request_body_in_clean_file:1; /* 请求体在干净文件中 */
+    unsigned                          request_body_file_group_access:1; /* 请求体文件组访问 */
+    unsigned                          request_body_file_log_level:3; /* 请求体文件日志级别 */
+    unsigned                          request_body_no_buffering:1; /* 请求体无缓冲 */
 
-    unsigned                          subrequest_in_memory:1;
-    unsigned                          waited:1;
+    unsigned                          subrequest_in_memory:1; /* 子请求在内存中 */
+    unsigned                          waited:1;          /* 等待标志 */
 
 #if (NGX_HTTP_CACHE)
-    unsigned                          cached:1;
+    unsigned                          cached:1;          /* 缓存标志 */
 #endif
 
 #if (NGX_HTTP_GZIP)
-    unsigned                          gzip_tested:1;
-    unsigned                          gzip_ok:1;
-    unsigned                          gzip_vary:1;
+    unsigned                          gzip_tested:1;     /* GZIP测试标志 */
+    unsigned                          gzip_ok:1;         /* GZIP可用标志 */
+    unsigned                          gzip_vary:1;       /* GZIP变化标志 */
 #endif
 
 #if (NGX_PCRE)
-    unsigned                          realloc_captures:1;
+    unsigned                          realloc_captures:1; /* 重新分配捕获 */
 #endif
 
-    unsigned                          proxy:1;
-    unsigned                          bypass_cache:1;
-    unsigned                          no_cache:1;
+    unsigned                          proxy:1;           /* 代理标志 */
+    unsigned                          bypass_cache:1;    /* 绕过缓存 */
+    unsigned                          no_cache:1;        /* 无缓存 */
 
     /*
-     * instead of using the request context data in
-     * ngx_http_limit_conn_module and ngx_http_limit_req_module
-     * we use the bit fields in the request structure
+     * 代替在ngx_http_limit_conn_module和ngx_http_limit_req_module中使用请求上下文数据
+     * 我们在请求结构中使用位字段
      */
-    unsigned                          limit_conn_status:2;
-    unsigned                          limit_req_status:3;
+    unsigned                          limit_conn_status:2; /* 连接限制状态 */
+    unsigned                          limit_req_status:3;  /* 请求限制状态 */
 
-    unsigned                          limit_rate_set:1;
-    unsigned                          limit_rate_after_set:1;
+    unsigned                          limit_rate_set:1;   /* 限速设置 */
+    unsigned                          limit_rate_after_set:1; /* 限速后设置 */
 
 #if 0
-    unsigned                          cacheable:1;
+    unsigned                          cacheable:1;       /* 可缓存 */
 #endif
 
-    unsigned                          pipeline:1;
-    unsigned                          chunked:1;
-    unsigned                          header_only:1;
-    unsigned                          expect_trailers:1;
-    unsigned                          keepalive:1;
-    unsigned                          lingering_close:1;
-    unsigned                          discard_body:1;
-    unsigned                          reading_body:1;
-    unsigned                          internal:1;
-    unsigned                          error_page:1;
-    unsigned                          filter_finalize:1;
-    unsigned                          post_action:1;
-    unsigned                          request_complete:1;
-    unsigned                          request_output:1;
-    unsigned                          header_sent:1;
-    unsigned                          response_sent:1;
-    unsigned                          expect_tested:1;
-    unsigned                          root_tested:1;
-    unsigned                          done:1;
-    unsigned                          logged:1;
-    unsigned                          terminated:1;
+    unsigned                          pipeline:1;        /* 管道标志 */
+    unsigned                          chunked:1;         /* 分块传输标志 */
+    unsigned                          header_only:1;     /* 仅头部标志 */
+    unsigned                          expect_trailers:1; /* 期望尾部标志 */
+    unsigned                          keepalive:1;       /* 保持连接标志 */
+    unsigned                          lingering_close:1; /* 延迟关闭标志 */
+    unsigned                          discard_body:1;    /* 丢弃请求体标志 */
+    unsigned                          reading_body:1;    /* 读取请求体标志 */
+    unsigned                          internal:1;        /* 内部请求标志 */
+    unsigned                          error_page:1;      /* 错误页面标志 */
+    unsigned                          filter_finalize:1; /* 过滤器完成标志 */
+    unsigned                          post_action:1;     /* 后置动作标志 */
+    unsigned                          request_complete:1; /* 请求完成标志 */
+    unsigned                          request_output:1;  /* 请求输出标志 */
+    unsigned                          header_sent:1;     /* 头部已发送标志 */
+    unsigned                          response_sent:1;   /* 响应已发送标志 */
+    unsigned                          expect_tested:1;   /* 期望测试标志 */
+    unsigned                          root_tested:1;     /* 根测试标志 */
+    unsigned                          done:1;            /* 完成标志 */
+    unsigned                          logged:1;          /* 已记录标志 */
+    unsigned                          terminated:1;      /* 终止标志 */
 
-    unsigned                          buffered:4;
+    unsigned                          buffered:4;        /* 缓冲标志 */
 
-    unsigned                          main_filter_need_in_memory:1;
-    unsigned                          filter_need_in_memory:1;
-    unsigned                          filter_need_temporary:1;
-    unsigned                          preserve_body:1;
-    unsigned                          allow_ranges:1;
-    unsigned                          subrequest_ranges:1;
-    unsigned                          single_range:1;
-    unsigned                          disable_not_modified:1;
-    unsigned                          stat_reading:1;
-    unsigned                          stat_writing:1;
-    unsigned                          stat_processing:1;
+    unsigned                          main_filter_need_in_memory:1; /* 主过滤器需要在内存中 */
+    unsigned                          filter_need_in_memory:1; /* 过滤器需要在内存中 */
+    unsigned                          filter_need_temporary:1; /* 过滤器需要临时 */
+    unsigned                          preserve_body:1;   /* 保留请求体 */
+    unsigned                          allow_ranges:1;    /* 允许范围请求 */
+    unsigned                          subrequest_ranges:1; /* 子请求范围 */
+    unsigned                          single_range:1;    /* 单一范围请求 */
+    unsigned                          disable_not_modified:1; /* 禁用未修改响应 */
+    unsigned                          stat_reading:1;    /* 统计读取 */
+    unsigned                          stat_writing:1;    /* 统计写入 */
+    unsigned                          stat_processing:1; /* 统计处理 */
 
-    unsigned                          background:1;
-    unsigned                          health_check:1;
+    unsigned                          background:1;      /* 后台请求 */
+    unsigned                          health_check:1;    /* 健康检查 */
 
-    /* used to parse HTTP headers */
+    /* 用于解析HTTP头部 */
 
-    ngx_uint_t                        state;
+    ngx_uint_t                        state;             /* 状态 */
 
-    ngx_uint_t                        header_hash;
-    ngx_uint_t                        lowcase_index;
-    u_char                            lowcase_header[NGX_HTTP_LC_HEADER_LEN];
+    ngx_uint_t                        header_hash;       /* 头部哈希 */
+    ngx_uint_t                        lowcase_index;     /* 小写索引 */
+    u_char                            lowcase_header[NGX_HTTP_LC_HEADER_LEN]; /* 小写头部 */
 
-    u_char                           *header_name_start;
-    u_char                           *header_name_end;
-    u_char                           *header_start;
-    u_char                           *header_end;
+    u_char                           *header_name_start; /* 头部名称开始 */
+    u_char                           *header_name_end;   /* 头部名称结束 */
+    u_char                           *header_start;      /* 头部开始 */
+    u_char                           *header_end;        /* 头部结束 */
 
     /*
-     * a memory that can be reused after parsing a request line
-     * via ngx_http_ephemeral_t
+     * 解析请求行后可以重用的内存
+     * 通过ngx_http_ephemeral_t
      */
 
-    u_char                           *uri_start;
-    u_char                           *uri_end;
-    u_char                           *uri_ext;
-    u_char                           *args_start;
-    u_char                           *request_start;
-    u_char                           *request_end;
-    u_char                           *method_end;
-    u_char                           *schema_start;
-    u_char                           *schema_end;
-    u_char                           *host_start;
-    u_char                           *host_end;
+    u_char                           *uri_start;         /* URI开始 */
+    u_char                           *uri_end;           /* URI结束 */
+    u_char                           *uri_ext;           /* URI扩展名 */
+    u_char                           *args_start;        /* 参数开始 */
+    u_char                           *request_start;     /* 请求开始 */
+    u_char                           *request_end;       /* 请求结束 */
+    u_char                           *method_end;        /* 方法结束 */
+    u_char                           *schema_start;      /* 协议方案开始 */
+    u_char                           *schema_end;        /* 协议方案结束 */
+    u_char                           *host_start;        /* 主机开始 */
+    u_char                           *host_end;          /* 主机结束 */
 
-    unsigned                          http_minor:16;
-    unsigned                          http_major:16;
+    unsigned                          http_minor:16;     /* HTTP次版本号 */
+    unsigned                          http_major:16;     /* HTTP主版本号 */
 };
 
 

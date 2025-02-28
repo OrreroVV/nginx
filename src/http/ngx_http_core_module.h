@@ -106,25 +106,27 @@ typedef struct {
 } ngx_http_listen_opt_t;
 
 
+/* HTTP请求处理阶段枚举
+ * 定义Nginx处理HTTP请求的不同阶段，按处理顺序排列 */
 typedef enum {
-    NGX_HTTP_POST_READ_PHASE = 0,
+    NGX_HTTP_POST_READ_PHASE = 0,    // 请求头读取后的第一个处理阶段
 
-    NGX_HTTP_SERVER_REWRITE_PHASE,
+    NGX_HTTP_SERVER_REWRITE_PHASE,   // 服务器级别的URI重写阶段（server块内）
 
-    NGX_HTTP_FIND_CONFIG_PHASE,
-    NGX_HTTP_REWRITE_PHASE,
-    NGX_HTTP_POST_REWRITE_PHASE,
+    NGX_HTTP_FIND_CONFIG_PHASE,      // 查找匹配的location配置
+    NGX_HTTP_REWRITE_PHASE,          // location级别的URI重写阶段
+    NGX_HTTP_POST_REWRITE_PHASE,     // 重写后的后处理阶段（检查重写结果）
 
-    NGX_HTTP_PREACCESS_PHASE,
+    NGX_HTTP_PREACCESS_PHASE,        // 访问控制前阶段（如连接限制）
 
-    NGX_HTTP_ACCESS_PHASE,
-    NGX_HTTP_POST_ACCESS_PHASE,
+    NGX_HTTP_ACCESS_PHASE,           // 访问权限控制阶段（如认证）
+    NGX_HTTP_POST_ACCESS_PHASE,      // 访问控制后处理阶段（处理访问结果）
 
-    NGX_HTTP_PRECONTENT_PHASE,
+    NGX_HTTP_PRECONTENT_PHASE,       // 内容生成前阶段（最后修改时间检查等）
 
-    NGX_HTTP_CONTENT_PHASE,
+    NGX_HTTP_CONTENT_PHASE,          // 内容生成阶段（主要处理阶段）
 
-    NGX_HTTP_LOG_PHASE
+    NGX_HTTP_LOG_PHASE               // 请求日志记录阶段
 } ngx_http_phases;
 
 typedef struct ngx_http_phase_handler_s  ngx_http_phase_handler_t;
@@ -151,30 +153,33 @@ typedef struct {
 } ngx_http_phase_t;
 
 
+/* HTTP核心模块主配置结构体 */
 typedef struct {
-    ngx_array_t                servers;         /* ngx_http_core_srv_conf_t */
-
-    ngx_http_phase_engine_t    phase_engine;
-
-    ngx_hash_t                 headers_in_hash;
-
-    ngx_hash_t                 variables_hash;
-
-    ngx_array_t                variables;         /* ngx_http_variable_t */
-    ngx_array_t                prefix_variables;  /* ngx_http_variable_t */
-    ngx_uint_t                 ncaptures;
-
-    ngx_uint_t                 server_names_hash_max_size;
-    ngx_uint_t                 server_names_hash_bucket_size;
-
-    ngx_uint_t                 variables_hash_max_size;
-    ngx_uint_t                 variables_hash_bucket_size;
-
-    ngx_hash_keys_arrays_t    *variables_keys;
-
-    ngx_array_t               *ports;
-
-    ngx_http_phase_t           phases[NGX_HTTP_LOG_PHASE + 1];
+    ngx_array_t                servers;         /* 服务器配置数组，存储ngx_http_core_srv_conf_t结构体（每个server块配置） */
+    
+    ngx_http_phase_engine_t    phase_engine;    /* 请求处理阶段引擎，管理各阶段处理器执行顺序 */
+    
+    ngx_hash_t                 headers_in_hash; /* 客户端请求头哈希表，用于快速查找请求头 */
+    ngx_hash_t                 variables_hash;   /* 变量哈希表，用于快速查找HTTP变量 */
+    
+    ngx_array_t                variables;         /* HTTP变量数组（普通变量） */
+    ngx_array_t                prefix_variables;  /* 前缀型HTTP变量数组（如正则匹配变量） */
+    ngx_uint_t                 ncaptures;        /* 正则表达式捕获组数量 */
+    
+    /* 服务器名称哈希表配置参数 */
+    ngx_uint_t                 server_names_hash_max_size;   /* 服务器名哈希表最大大小 */
+    ngx_uint_t                 server_names_hash_bucket_size;/* 服务器名哈希表桶大小 */
+    
+    /* 变量哈希表配置参数 */    
+    ngx_uint_t                 variables_hash_max_size;     /* 变量哈希表最大大小 */
+    ngx_uint_t                 variables_hash_bucket_size;  /* 变量哈希表桶大小 */
+    
+    ngx_hash_keys_arrays_t    *variables_keys;  /* 变量键集合，用于配置解析时构建变量哈希表 */
+    
+    ngx_array_t               *ports;           /* 监听端口数组，存储服务器监听的所有端口配置 */
+    
+    /* 各处理阶段的处理器配置数组（+1确保包含NGX_HTTP_LOG_PHASE） */
+    ngx_http_phase_t           phases[NGX_HTTP_LOG_PHASE + 1]; 
 } ngx_http_core_main_conf_t;
 
 

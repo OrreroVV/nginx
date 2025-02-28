@@ -342,6 +342,12 @@ ngx_process_events_and_timers(ngx_cycle_t *cycle)
 }
 
 
+/**
+ * 处理读事件，添加读事件到事件队列中
+ * @param rev 事件对象
+ * @param flags 事件标志
+ * @return 处理结果
+ */
 ngx_int_t
 ngx_handle_read_event(ngx_event_t *rev, ngx_uint_t flags)
 {
@@ -734,6 +740,14 @@ ngx_timer_signal_handler(int signo)
 #endif
 
 
+/*
+ * 初始化事件处理模块
+ * 主要完成:
+ * 1. 初始化连接池和事件池
+ * 2. 设置定时器
+ * 3. 初始化事件模块
+ * 4. 为监听套接字添加事件处理
+ */
 static ngx_int_t
 ngx_event_process_init(ngx_cycle_t *cycle)
 {
@@ -745,9 +759,14 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     ngx_event_conf_t    *ecf;
     ngx_event_module_t  *module;
 
+    /* 获取核心配置和事件模块配置 */
     ccf = (ngx_core_conf_t *) ngx_get_conf(cycle->conf_ctx, ngx_core_module);
     ecf = ngx_event_get_conf(cycle->conf_ctx, ngx_event_core_module);
 
+    /* 
+     * 如果是master进程且有多个worker进程,并且配置了accept_mutex,
+     * 则启用accept锁避免惊群
+     */
     if (ccf->master && ccf->worker_processes > 1 && ecf->accept_mutex) {
         ngx_use_accept_mutex = 1;
         ngx_accept_mutex_held = 0;
@@ -770,14 +789,17 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     ngx_use_exclusive_accept = 0;
 
+    /* 初始化事件队列 */
     ngx_queue_init(&ngx_posted_accept_events);
     ngx_queue_init(&ngx_posted_next_events);
     ngx_queue_init(&ngx_posted_events);
 
+    /* 初始化定时器 */
     if (ngx_event_timer_init(cycle->log) == NGX_ERROR) {
         return NGX_ERROR;
     }
 
+    /* 初始化NGX_EVENT_MODULE事件模块 */
     for (m = 0; cycle->modules[m]; m++) {
         if (cycle->modules[m]->type != NGX_EVENT_MODULE) {
             continue;
@@ -799,6 +821,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if !(NGX_WIN32)
 
+    /* 设置定时器信号处理 */
     if (ngx_timer_resolution && !(ngx_event_flags & NGX_USE_TIMER_EVENT)) {
         struct sigaction  sa;
         struct itimerval  itv;
@@ -824,6 +847,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
     }
 
+    /* 获取系统最大文件描述符数 */
     if (ngx_event_flags & NGX_USE_FD_EVENT) {
         struct rlimit  rlmt;
 
@@ -853,6 +877,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+    /* 分配连接池 */
     cycle->connections =
         ngx_alloc(sizeof(ngx_connection_t) * cycle->connection_n, cycle->log);
     if (cycle->connections == NULL) {
@@ -861,29 +886,34 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
     c = cycle->connections;
 
+    /* 分配读事件池 */
     cycle->read_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                    cycle->log);
     if (cycle->read_events == NULL) {
         return NGX_ERROR;
     }
 
+    /* 初始化读事件 */
     rev = cycle->read_events;
     for (i = 0; i < cycle->connection_n; i++) {
         rev[i].closed = 1;
         rev[i].instance = 1;
     }
 
+    /* 分配写事件池 */
     cycle->write_events = ngx_alloc(sizeof(ngx_event_t) * cycle->connection_n,
                                     cycle->log);
     if (cycle->write_events == NULL) {
         return NGX_ERROR;
     }
 
+    /* 初始化写事件 */
     wev = cycle->write_events;
     for (i = 0; i < cycle->connection_n; i++) {
         wev[i].closed = 1;
     }
 
+    /* 初始化空闲连接链表 */
     i = cycle->connection_n;
     next = NULL;
 
@@ -901,46 +931,54 @@ ngx_event_process_init(ngx_cycle_t *cycle)
     cycle->free_connections = next;
     cycle->free_connection_n = cycle->connection_n;
 
-    /* for each listening socket */
+    /* 为每个监听套接字初始化连接 */
 
     ls = cycle->listening.elts;
+    /* 为每个监听套接字初始化连接对象 */
     for (i = 0; i < cycle->listening.nelts; i++) {
 
 #if (NGX_HAVE_REUSEPORT)
+        /* 如果启用了reuseport且不是当前worker进程的监听端口则跳过 */
         if (ls[i].reuseport && ls[i].worker != ngx_worker) {
             continue;
         }
 #endif
 
+        /* 从空闲连接池获取一个连接对象ngx_connection_t */
         c = ngx_get_connection(ls[i].fd, cycle->log);
 
         if (c == NULL) {
             return NGX_ERROR;
         }
 
+        /* 设置连接对象的类型和日志 */
         c->type = ls[i].type;
         c->log = &ls[i].log;
 
+        /* 建立监听对象和连接对象的关联关系 */
         c->listening = &ls[i];
         ls[i].connection = c;
 
+        /* 获取读事件对象 */
         rev = c->read;
 
+        /* 设置读事件的日志和accept标志 */
         rev->log = c->log;
         rev->accept = 1;
 
 #if (NGX_HAVE_DEFERRED_ACCEPT)
+        /* 设置延迟accept标志 */
         rev->deferred_accept = ls[i].deferred_accept;
 #endif
 
+        /* 如果不是IOCP事件模型且存在旧的cycle */
         if (!(ngx_event_flags & NGX_USE_IOCP_EVENT)
             && cycle->old_cycle)
         {
             if (ls[i].previous) {
 
                 /*
-                 * delete the old accept events that were bound to
-                 * the old cycle read events array
+                 * 删除旧的accept事件,这些事件绑定在旧cycle的读事件数组上
                  */
 
                 old = ls[i].previous->connection;
@@ -957,6 +995,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #if (NGX_WIN32)
 
+        /* Windows平台下的IOCP事件模型处理 */
         if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
             ngx_iocp_conf_t  *iocpcf;
 
@@ -992,20 +1031,24 @@ ngx_event_process_init(ngx_cycle_t *cycle)
         }
 
 #else
-
+        /* 根据套接字类型设置事件处理函数 */
         if (c->type == SOCK_STREAM) {
+            /* TCP连接使用ngx_event_accept处理函数 */
             rev->handler = ngx_event_accept;
 
 #if (NGX_QUIC)
         } else if (ls[i].quic) {
+            /* QUIC连接使用ngx_quic_recvmsg处理函数 */
             rev->handler = ngx_quic_recvmsg;
 #endif
         } else {
+            /* UDP连接使用ngx_event_recvmsg处理函数 */
             rev->handler = ngx_event_recvmsg;
         }
 
 #if (NGX_HAVE_REUSEPORT)
 
+        /* 如果启用了reuseport,直接添加读事件 */
         if (ls[i].reuseport) {
             if (ngx_add_event(rev, NGX_READ_EVENT, 0) == NGX_ERROR) {
                 return NGX_ERROR;
@@ -1016,12 +1059,14 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+        /* 如果使用accept锁则跳过事件添加 */
         if (ngx_use_accept_mutex) {
             continue;
         }
 
 #if (NGX_HAVE_EPOLLEXCLUSIVE)
 
+        /* 多worker进程下使用EPOLL时启用独占accept */
         if ((ngx_event_flags & NGX_USE_EPOLL_EVENT)
             && ccf->worker_processes > 1)
         {
@@ -1038,6 +1083,7 @@ ngx_event_process_init(ngx_cycle_t *cycle)
 
 #endif
 
+        /* 添加读事件到事件驱动模块 */
         if (ngx_add_event(rev, NGX_READ_EVENT, 0) == NGX_ERROR) {
             return NGX_ERROR;
         }

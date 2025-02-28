@@ -1,0 +1,30 @@
+{
+    "files.associations": {
+        "*.thtml": "php",
+        "*.json": "jsonc",
+        "ngx_config.h": "c",
+        "ngx_event.h": "c",
+        "ngx_http.h": "c",
+        "ngx_http_upstream.h": "c",
+        "ngx_http_upstream_round_robin.h": "c",
+        "ngx_http_core_module.h": "c",
+        "random": "cpp",
+        "array": "cpp",
+        "chrono": "cpp",
+        "functional": "cpp",
+        "istream": "cpp",
+        "ostream": "cpp",
+        "ratio": "cpp",
+        "tuple": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "optional": "c",
+        "system_error": "c",
+        "nginx.h": "c",
+        "string_view": "c",
+        "initializer_list": "c"
+    },
+    "cSpell.enabledFileTypes": {
+        "c": false
+    }
+}

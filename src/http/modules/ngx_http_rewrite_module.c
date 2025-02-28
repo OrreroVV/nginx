@@ -133,53 +133,84 @@ ngx_module_t  ngx_http_rewrite_module = {
 };
 
 
+/**
+ * HTTP重写模块的核心请求处理函数
+ *
+ * 该函数在请求处理阶段被调用，主要功能：
+ * 1. 执行配置文件中通过rewrite指令定义的重写规则
+ * 2. 处理URL重定向、变量修改等操作
+ * 3. 通过脚本引擎解释执行预编译的重写指令
+ *
+ * 工作流程：
+ * 1. 获取核心模块配置，检查是否需要跳过当前location的重写阶段
+ * 2. 获取重写模块的location配置，检查是否存在重写规则
+ * 3. 初始化脚本引擎：
+ *    - 分配引擎结构体
+ *    - 为变量操作分配栈空间
+ *    - 设置初始执行状态和日志配置
+ * 4. 逐条执行预编译的重写指令代码
+ *
+ * 返回值说明：
+ * NGX_DECLINED - 未修改请求，继续后续处理
+ * NGX_HTTP_INTERNAL_SERVER_ERROR - 内存分配失败
+ * 其他 - 根据脚本执行结果返回相应状态码
+ */
 static ngx_int_t
 ngx_http_rewrite_handler(ngx_http_request_t *r)
 {
     ngx_int_t                     index;
-    ngx_http_script_code_pt       code;
-    ngx_http_script_engine_t     *e;
-    ngx_http_core_srv_conf_t     *cscf;
-    ngx_http_core_main_conf_t    *cmcf;
-    ngx_http_rewrite_loc_conf_t  *rlcf;
+    ngx_http_script_code_pt       code;      // 重写指令代码指针
+    ngx_http_script_engine_t     *e;         // 脚本引擎实例
+    ngx_http_core_srv_conf_t     *cscf;      // 核心server配置
+    ngx_http_core_main_conf_t    *cmcf;      // 核心main配置
+    ngx_http_rewrite_loc_conf_t  *rlcf;      // 重写模块的location配置
 
+    // 获取核心模块配置信息
     cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
     cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
-    index = cmcf->phase_engine.location_rewrite_index;
+    index = cmcf->phase_engine.location_rewrite_index;  // 获取重写阶段索引
 
+    // 检查是否需要跳过当前location的重写处理（server空location情况）
     if (r->phase_handler == index && r->loc_conf == cscf->ctx->loc_conf) {
-        /* skipping location rewrite phase for server null location */
+        /* 跳过server空location的重写阶段 */
         return NGX_DECLINED;
     }
 
+    // 获取重写模块的location级别配置
     rlcf = ngx_http_get_module_loc_conf(r, ngx_http_rewrite_module);
 
+    // 如果没有配置重写规则，直接返回
     if (rlcf->codes == NULL) {
         return NGX_DECLINED;
     }
 
+    // 分配脚本引擎结构体
     e = ngx_pcalloc(r->pool, sizeof(ngx_http_script_engine_t));
     if (e == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    // 为变量操作分配栈空间（大小由配置中的stack_size决定）
     e->sp = ngx_pcalloc(r->pool,
                         rlcf->stack_size * sizeof(ngx_http_variable_value_t));
     if (e->sp == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    e->ip = rlcf->codes->elts;
-    e->request = r;
-    e->quote = 1;
-    e->log = rlcf->log;
-    e->status = NGX_DECLINED;
+    // 初始化脚本引擎参数
+    e->ip = rlcf->codes->elts;    // 指向预编译的重写指令数组
+    e->request = r;              // 关联当前请求
+    e->quote = 1;                // 启用变量引用解析
+    e->log = rlcf->log;          // 设置日志配置
+    e->status = NGX_DECLINED;    // 初始状态为未处理
 
+    // 执行重写指令循环：直到遇到终止符（0指针）
     while (*(uintptr_t *) e->ip) {
-        code = *(ngx_http_script_code_pt *) e->ip;
-        code(e);
+        code = *(ngx_http_script_code_pt *) e->ip;  // 获取当前指令
+        code(e);  // 执行指令对应的处理函数
     }
 
+    // 返回最终处理状态（可能被指令修改过）
     return e->status;
 }
 
@@ -274,22 +305,28 @@ ngx_http_rewrite_init(ngx_conf_t *cf)
     ngx_http_handler_pt        *h;
     ngx_http_core_main_conf_t  *cmcf;
 
+    /* 获取HTTP核心模块的主配置结构，用于管理HTTP阶段的处理器 */
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
 
+    /* 将重写处理器添加到SERVER_REWRITE阶段（server级别的重写阶段） */
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_SERVER_REWRITE_PHASE].handlers);
     if (h == NULL) {
-        return NGX_ERROR;
+        return NGX_ERROR;  // 内存分配失败时返回错误
     }
 
+    /* 设置该阶段的处理器为ngx_http_rewrite_handler函数 */
     *h = ngx_http_rewrite_handler;
 
+    /* 将重写处理器再次添加到REWRITE阶段（location级别的重写阶段） */
     h = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers);
     if (h == NULL) {
-        return NGX_ERROR;
+        return NGX_ERROR;  // 内存分配失败时返回错误
     }
 
+    /* 设置该阶段的处理器为同一个ngx_http_rewrite_handler函数 */
     *h = ngx_http_rewrite_handler;
 
+    /* 初始化成功返回OK */
     return NGX_OK;
 }
 

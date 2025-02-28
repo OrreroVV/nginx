@@ -82,6 +82,24 @@ ngx_module_t  ngx_http_mirror_module = {
 };
 
 
+/**
+ * HTTP镜像请求处理函数
+ * 
+ * 该函数在请求处理阶段被调用，主要功能：
+ * 1. 检查当前请求是否为主请求（非子请求）
+ * 2. 获取镜像模块的location配置，检查是否配置了镜像规则
+ * 3. 处理请求体镜像：
+ *    - 创建镜像上下文用于跟踪请求状态
+ *    - 异步读取客户端请求体
+ *    - 通过回调函数处理后续镜像逻辑
+ * 4. 当不需要处理请求体时，直接执行内部镜像处理
+ *
+ * 返回值说明：
+ * NGX_DECLINED   - 未处理请求，转交后续handler
+ * NGX_ERROR      - 内存分配失败
+ * NGX_DONE       - 请求已异步处理
+ * 其他返回值     - HTTP错误状态码
+ */
 static ngx_int_t
 ngx_http_mirror_handler(ngx_http_request_t *r)
 {
@@ -89,43 +107,57 @@ ngx_http_mirror_handler(ngx_http_request_t *r)
     ngx_http_mirror_ctx_t       *ctx;
     ngx_http_mirror_loc_conf_t  *mlcf;
 
+    /* 仅处理主请求，子请求直接跳过 */
     if (r != r->main) {
         return NGX_DECLINED;
     }
 
+    /* 获取镜像模块的location配置 */
     mlcf = ngx_http_get_module_loc_conf(r, ngx_http_mirror_module);
 
+    /* 检查是否配置了镜像目标 */
     if (mlcf->mirror == NULL) {
         return NGX_DECLINED;
     }
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "mirror handler");
 
+    /* 需要处理请求体的情况（当配置了mirror_request_body on时） */
     if (mlcf->request_body) {
+        /* 尝试获取已存在的上下文 */
         ctx = ngx_http_get_module_ctx(r, ngx_http_mirror_module);
 
+        /* 如果上下文已存在，直接返回当前状态 */
         if (ctx) {
             return ctx->status;
         }
 
+        /* 分配新的上下文结构体 */
         ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_mirror_ctx_t));
         if (ctx == NULL) {
             return NGX_ERROR;
         }
 
+        /* 初始化上下文状态为处理中 */
         ctx->status = NGX_DONE;
 
+        /* 将上下文绑定到当前请求 */
         ngx_http_set_ctx(r, ctx, ngx_http_mirror_module);
 
+        /* 异步读取客户端请求体，完成后调用ngx_http_mirror_body_handler */
         rc = ngx_http_read_client_request_body(r, ngx_http_mirror_body_handler);
+        
+        /* 处理立即错误（如客户端断开连接等） */
         if (rc >= NGX_HTTP_SPECIAL_RESPONSE) {
             return rc;
         }
 
+        /* 暂停当前请求处理，等待请求体读取完成 */
         ngx_http_finalize_request(r, NGX_DONE);
         return NGX_DONE;
     }
 
+    /* 不需要处理请求体时直接执行镜像逻辑 */
     return ngx_http_mirror_handler_internal(r);
 }
 

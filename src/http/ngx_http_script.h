@@ -15,24 +15,24 @@
 
 
 typedef struct {
-    u_char                     *ip;
-    u_char                     *pos;
-    ngx_http_variable_value_t  *sp;
+    u_char                     *ip;       /* 指令指针，指向当前执行的脚本指令 */
+    u_char                     *pos;      /* 缓冲区当前位置指针 */
+    ngx_http_variable_value_t  *sp;       /* 变量值栈指针 */
 
-    ngx_str_t                   buf;
-    ngx_str_t                   line;
+    ngx_str_t                   buf;      /* 输出缓冲区 */
+    ngx_str_t                   line;     /* 当前处理的行内容 */
 
     /* the start of the rewritten arguments */
-    u_char                     *args;
+    u_char                     *args;     /* 重写后的参数起始位置 */
 
-    unsigned                    flushed:1;
-    unsigned                    skip:1;
-    unsigned                    quote:1;
-    unsigned                    is_args:1;
-    unsigned                    log:1;
+    unsigned                    flushed:1;  /* 缓冲区是否已刷新标志 */
+    unsigned                    skip:1;     /* 是否跳过当前处理步骤 */
+    unsigned                    quote:1;    /* 是否在引用环境中（如带引号的字符串） */
+    unsigned                    is_args:1;  /* 是否存在URI参数（'?'存在标志） */
+    unsigned                    log:1;      /* 是否需要记录日志 */
 
-    ngx_int_t                   status;
-    ngx_http_request_t         *request;
+    ngx_int_t                   status;    /* 当前处理状态码 */
+    ngx_http_request_t         *request;  /* 关联的HTTP请求对象 */
 } ngx_http_script_engine_t;
 
 

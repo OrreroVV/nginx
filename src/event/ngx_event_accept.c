@@ -20,20 +20,32 @@ static void ngx_close_accepted_connection(ngx_connection_t *c);
 void
 ngx_event_accept(ngx_event_t *ev)
 {
+    // 声明变量用于存储socket地址长度
     socklen_t          socklen;
+    // 用于存储错误码
     ngx_err_t          err;
+    // 日志对象指针
     ngx_log_t         *log;
+    // 日志级别
     ngx_uint_t         level;
+    // socket文件描述符
     ngx_socket_t       s;
+    // 读写事件对象指针
     ngx_event_t       *rev, *wev;
+    // socket地址结构体
     ngx_sockaddr_t     sa;
+    // 监听对象指针
     ngx_listening_t   *ls;
+    // 连接对象指针
     ngx_connection_t  *c, *lc;
+    // 事件模块配置对象指针
     ngx_event_conf_t  *ecf;
 #if (NGX_HAVE_ACCEPT4)
+    // 是否使用accept4系统调用的标志
     static ngx_uint_t  use_accept4 = 1;
 #endif
 
+    // 如果事件超时,重新启用accept事件
     if (ev->timedout) {
         if (ngx_enable_accept_events((ngx_cycle_t *) ngx_cycle) != NGX_OK) {
             return;
@@ -42,16 +54,20 @@ ngx_event_accept(ngx_event_t *ev)
         ev->timedout = 0;
     }
 
+    // 获取事件模块配置
     ecf = ngx_event_get_conf(ngx_cycle->conf_ctx, ngx_event_core_module);
 
+    // 如果不是kqueue事件,设置一次可以接受的连接数
     if (!(ngx_event_flags & NGX_USE_KQUEUE_EVENT)) {
         ev->available = ecf->multi_accept;
     }
 
+    // 获取监听连接对象
     lc = ev->data;
     ls = lc->listening;
     ev->ready = 0;
 
+    // 记录调试日志
     ngx_log_debug2(NGX_LOG_DEBUG_EVENT, ev->log, 0,
                    "accept on %V, ready: %d", &ls->addr_text, ev->available);
 
@@ -59,6 +75,7 @@ ngx_event_accept(ngx_event_t *ev)
         socklen = sizeof(ngx_sockaddr_t);
 
 #if (NGX_HAVE_ACCEPT4)
+        // 如果支持accept4系统调用则优先使用
         if (use_accept4) {
             s = accept4(lc->fd, &sa.sockaddr, &socklen, SOCK_NONBLOCK);
         } else {
@@ -68,6 +85,7 @@ ngx_event_accept(ngx_event_t *ev)
         s = accept(lc->fd, &sa.sockaddr, &socklen);
 #endif
 
+        // 处理accept失败的情况
         if (s == (ngx_socket_t) -1) {
             err = ngx_socket_errno;
 
@@ -109,6 +127,7 @@ ngx_event_accept(ngx_event_t *ev)
                 }
             }
 
+            // 处理文件描述符用尽的情况
             if (err == NGX_EMFILE || err == NGX_ENFILE) {
                 if (ngx_disable_accept_events((ngx_cycle_t *) ngx_cycle, 1)
                     != NGX_OK)
@@ -133,12 +152,15 @@ ngx_event_accept(ngx_event_t *ev)
         }
 
 #if (NGX_STAT_STUB)
+        // 更新已接受连接数统计
         (void) ngx_atomic_fetch_add(ngx_stat_accepted, 1);
 #endif
 
+        // 计算是否需要限制accept的频率
         ngx_accept_disabled = ngx_cycle->connection_n / 8
                               - ngx_cycle->free_connection_n;
 
+        // 获取新连接对象
         c = ngx_get_connection(s, ev->log);
 
         if (c == NULL) {
@@ -153,27 +175,33 @@ ngx_event_accept(ngx_event_t *ev)
         c->type = SOCK_STREAM;
 
 #if (NGX_STAT_STUB)
+        // 更新活动连接数统计
         (void) ngx_atomic_fetch_add(ngx_stat_active, 1);
 #endif
 
+        // 为连接创建内存池
         c->pool = ngx_create_pool(ls->pool_size, ev->log);
         if (c->pool == NULL) {
             ngx_close_accepted_connection(c);
             return;
         }
 
+        // 限制socket地址长度
         if (socklen > (socklen_t) sizeof(ngx_sockaddr_t)) {
             socklen = sizeof(ngx_sockaddr_t);
         }
 
+        // 分配存储socket地址的内存
         c->sockaddr = ngx_palloc(c->pool, socklen);
         if (c->sockaddr == NULL) {
             ngx_close_accepted_connection(c);
             return;
         }
 
+        // 复制socket地址
         ngx_memcpy(c->sockaddr, &sa, socklen);
 
+        // 创建日志对象
         log = ngx_palloc(c->pool, sizeof(ngx_log_t));
         if (log == NULL) {
             ngx_close_accepted_connection(c);
@@ -182,7 +210,9 @@ ngx_event_accept(ngx_event_t *ev)
 
         /* set a blocking mode for iocp and non-blocking mode for others */
 
+        // 根据事件模型设置socket阻塞模式
         if (ngx_inherited_nonblocking) {
+            // 如果事件模型是IOCP,则设置socket为阻塞模式
             if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
                 if (ngx_blocking(s) == -1) {
                     ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_socket_errno,
@@ -193,6 +223,7 @@ ngx_event_accept(ngx_event_t *ev)
             }
 
         } else {
+            // 如果事件模型不是IOCP,则设置socket为非阻塞模式
             if (!(ngx_event_flags & NGX_USE_IOCP_EVENT)) {
                 if (ngx_nonblocking(s) == -1) {
                     ngx_log_error(NGX_LOG_ALERT, ev->log, ngx_socket_errno,
@@ -203,22 +234,27 @@ ngx_event_accept(ngx_event_t *ev)
             }
         }
 
+        // 设置日志对象
         *log = ls->log;
 
+        // 设置连接的收发函数
         c->recv = ngx_recv;
         c->send = ngx_send;
         c->recv_chain = ngx_recv_chain;
         c->send_chain = ngx_send_chain;
 
+        // 关联日志对象
         c->log = log;
         c->pool->log = log;
 
+        // 设置socket相关属性
         c->socklen = socklen;
         c->listening = ls;
         c->local_sockaddr = ls->sockaddr;
         c->local_socklen = ls->socklen;
 
 #if (NGX_HAVE_UNIX_DOMAIN)
+        // Unix域socket的特殊处理
         if (c->sockaddr->sa_family == AF_UNIX) {
             c->tcp_nopush = NGX_TCP_NOPUSH_DISABLED;
             c->tcp_nodelay = NGX_TCP_NODELAY_DISABLED;
@@ -229,15 +265,19 @@ ngx_event_accept(ngx_event_t *ev)
         }
 #endif
 
+        // 获取读写事件对象
         rev = c->read;
         wev = c->write;
 
+        // 设置写事件为就绪状态
         wev->ready = 1;
 
+        // IOCP模式下设置读事件为就绪状态
         if (ngx_event_flags & NGX_USE_IOCP_EVENT) {
             rev->ready = 1;
         }
 
+        // 延迟接受的处理
         if (ev->deferred_accept) {
             rev->ready = 1;
 #if (NGX_HAVE_KQUEUE || NGX_HAVE_EPOLLRDHUP)
@@ -245,6 +285,7 @@ ngx_event_accept(ngx_event_t *ev)
 #endif
         }
 
+        // 设置事件日志
         rev->log = log;
         wev->log = log;
 
@@ -257,14 +298,18 @@ ngx_event_accept(ngx_event_t *ev)
          *             or protection by critical section or light mutex
          */
 
+        // 分配连接序号
         c->number = ngx_atomic_fetch_add(ngx_connection_counter, 1);
 
+        // 记录连接开始时间
         c->start_time = ngx_current_msec;
 
 #if (NGX_STAT_STUB)
+        // 更新已处理连接数统计
         (void) ngx_atomic_fetch_add(ngx_stat_handled, 1);
 #endif
 
+        // 处理地址文本表示
         if (ls->addr_ntop) {
             c->addr_text.data = ngx_pnalloc(c->pool, ls->addr_text_max_len);
             if (c->addr_text.data == NULL) {
@@ -300,6 +345,7 @@ ngx_event_accept(ngx_event_t *ev)
         }
 #endif
 
+        // 添加连接到事件处理机制
         if (ngx_add_conn && (ngx_event_flags & NGX_USE_EPOLL_EVENT) == 0) {
             if (ngx_add_conn(c) == NGX_ERROR) {
                 ngx_close_accepted_connection(c);
@@ -307,11 +353,14 @@ ngx_event_accept(ngx_event_t *ev)
             }
         }
 
+        // 清除日志处理器
         log->data = NULL;
         log->handler = NULL;
 
+        // 调用监听端口的连接处理函数，初始化ngx_connection_t客户端连接
         ls->handler(c);
 
+        // kqueue模式下更新可用连接数
         if (ngx_event_flags & NGX_USE_KQUEUE_EVENT) {
             ev->available--;
         }
@@ -319,6 +368,7 @@ ngx_event_accept(ngx_event_t *ev)
     } while (ev->available);
 
 #if (NGX_HAVE_EPOLLEXCLUSIVE)
+    // 重新排序accept事件
     ngx_reorder_accept_events(ls);
 #endif
 }

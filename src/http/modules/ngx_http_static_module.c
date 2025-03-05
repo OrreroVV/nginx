@@ -45,6 +45,31 @@ ngx_module_t  ngx_http_static_module = {
 };
 
 
+/*
+ * 静态文件请求处理函数
+ * 功能：处理客户端对静态资源（如.html/.css/.js/图片等）的请求
+ * 典型处理流程：
+ * 1. 检查请求方法是否合法（GET/HEAD/POST）
+ * 2. 验证URI是否指向具体文件（非目录）
+ * 3. 将URI转换为文件系统路径
+ * 4. 打开目标文件并获取文件信息
+ * 5. 设置响应头（Content-Type/Length等）
+ * 6. 发送文件内容（使用sendfile零拷贝或内存缓冲）
+ * 
+ * 参数：
+ *   r - 指向HTTP请求结构的指针，包含所有请求信息
+ * 
+ * 返回值：
+ *   NGX_OK       - 请求已处理完成
+ *   NGX_DECLINED - 拒绝处理（如请求目录时转交给索引模块）
+ *   HTTP错误码   - 出现错误时返回具体错误码（如404/403等）
+ * 
+ * 注意：
+ * - 支持范围请求（Range requests），用于大文件分块传输
+ * - 使用directio绕过系统缓存直接读取文件（针对大文件优化）
+ * - 自动处理Last-Modified头，支持客户端缓存验证
+ * - 处理符号链接时会进行安全检查
+ */
 static ngx_int_t
 ngx_http_static_handler(ngx_http_request_t *r)
 {

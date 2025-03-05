@@ -971,6 +971,34 @@ ngx_http_core_rewrite_phase(ngx_http_request_t *r, ngx_http_phase_handler_t *ph)
 }
 
 
+/**
+ * 配置查找阶段的核心处理函数
+ * 
+ * 该函数属于NGX_HTTP_FIND_CONFIG_PHASE阶段，主要职责：
+ * 1. 根据请求URI查找匹配的location配置
+ * 2. 处理内部/外部访问权限控制
+ * 3. 验证客户端请求体大小限制
+ * 4. 更新请求的location配置信息
+ *
+ * 执行流程：
+ * - 调用ngx_http_core_find_location()进行location匹配
+ * - 检查location的访问权限（internal标志）
+ * - 更新请求的connection/request相关配置
+ * - 验证客户端请求体大小是否超过配置限制
+ *
+ * 参数说明：
+ * @param r       当前HTTP请求对象
+ * @param ph      阶段处理器对象
+ * @return        处理状态码
+ *                NGX_OK     处理成功
+ *                NGX_DECLINED 继续后续处理
+ *                NGX_HTTP_... 错误状态码
+ *
+ * 注意事项：
+ * - 该阶段可能修改请求的content_handler
+ * - 负责请求体大小校验的安全检查
+ * - 处理internal location的访问控制
+ */
 ngx_int_t
 ngx_http_core_find_config_phase(ngx_http_request_t *r,
     ngx_http_phase_handler_t *ph)
@@ -3062,6 +3090,37 @@ ngx_http_core_server(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
 }
 
 
+/**
+ * @brief 处理HTTP location块配置的核心函数
+ * 
+ * 该函数用于解析nginx配置中的location指令，创建对应的location配置上下文，
+ * 并处理不同的匹配模式（精确匹配、前缀匹配、正则匹配等）
+ * 
+ * @param cf 配置解析上下文对象，包含解析状态、模块信息等
+ * @param cmd 当前处理的指令对象（此处对应location指令）
+ * @param dummy 未使用的保留参数
+ * 
+ * @return char* 返回配置解析结果：
+ *              - NGX_CONF_OK 解析成功
+ *              - NGX_CONF_ERROR 解析失败
+ *              - 其他模块返回的配置字符串
+ * 
+ * 函数主要流程：
+ * 1. 创建location级别的配置上下文
+ * 2. 初始化各HTTP模块的location配置
+ * 3. 解析location匹配规则（修饰符和路径）：
+ *    - "=" 前缀表示精确匹配
+ *    - "^~" 前缀表示优先前缀匹配
+ *    - "~" 或 "~*" 表示正则匹配（区分/不区分大小写）
+ *    - 无修饰符表示普通前缀匹配
+ * 4. 处理特殊匹配模式：
+ *    - 命名location（@前缀）
+ *    - 正则表达式匹配的编译处理
+ * 5. 配置继承关系处理：
+ *    - 合并父级server/location的配置
+ *    - 处理嵌套location的情况
+ * 6. 将新location配置添加到核心模块的locations链表
+ */
 static char *
 ngx_http_core_location(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
 {

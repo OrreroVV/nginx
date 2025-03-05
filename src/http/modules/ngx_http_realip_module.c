@@ -126,123 +126,123 @@ static ngx_http_variable_t  ngx_http_realip_vars[] = {
 };
 
 
+/* RealIP 模块核心处理函数，用于从请求头中提取真实客户端地址 */
 static ngx_int_t
 ngx_http_realip_handler(ngx_http_request_t *r)
 {
-    u_char                      *p;
-    size_t                       len;
-    ngx_str_t                   *value;
-    ngx_uint_t                   i, hash;
-    ngx_addr_t                   addr;
-    ngx_list_part_t             *part;
-    ngx_table_elt_t             *header, *xfwd;
-    ngx_connection_t            *c;
-    ngx_http_realip_ctx_t       *ctx;
-    ngx_http_realip_loc_conf_t  *rlcf;
+    u_char                      *p;          // 临时指针，用于header匹配
+    size_t                       len;        // header名称长度
+    ngx_str_t                   *value;      // 存储找到的header值
+    ngx_uint_t                   i, hash;    // 循环索引和预计算的header哈希值
+    ngx_addr_t                   addr;       // 存储解析出的真实地址
+    ngx_list_part_t             *part;       // 请求头链表分区指针
+    ngx_table_elt_t             *header, *xfwd; // 请求头对象和X-Forwarded-For指针
+    ngx_connection_t            *c;          // 当前连接对象
+    ngx_http_realip_ctx_t       *ctx;        // realip模块上下文
+    ngx_http_realip_loc_conf_t  *rlcf;       // 当前location配置
 
+    /* 获取realip模块的location配置 */
     rlcf = ngx_http_get_module_loc_conf(r, ngx_http_realip_module);
 
+    /* 如果没有配置信任地址列表，直接返回不处理 */
     if (rlcf->from == NULL) {
         return NGX_DECLINED;
     }
 
+    /* 检查是否已经设置过上下文（防止重复处理） */
     ctx = ngx_http_realip_get_module_ctx(r);
-
     if (ctx) {
         return NGX_DECLINED;
     }
 
+    /* 根据配置类型处理不同来源的真实IP */
     switch (rlcf->type) {
 
+    /* 处理 X-Real-IP 头 */
     case NGX_HTTP_REALIP_XREALIP:
-
         if (r->headers_in.x_real_ip == NULL) {
-            return NGX_DECLINED;
+            return NGX_DECLINED;  // 没有X-Real-IP头则返回
         }
-
-        value = &r->headers_in.x_real_ip->value;
-        xfwd = NULL;
-
+        value = &r->headers_in.x_real_ip->value;  // 获取头值
+        xfwd = NULL;  // 不需要处理X-Forwarded-For链
         break;
 
+    /* 处理 X-Forwarded-For 头 */
     case NGX_HTTP_REALIP_XFWD:
-
         xfwd = r->headers_in.x_forwarded_for;
-
         if (xfwd == NULL) {
-            return NGX_DECLINED;
+            return NGX_DECLINED;  // 没有X-Forwarded-For头则返回
         }
-
-        value = NULL;
-
+        value = NULL;  // 特殊标记，表示需要处理整个代理链
         break;
 
+    /* 处理 PROXY 协议 */
     case NGX_HTTP_REALIP_PROXY:
-
         if (r->connection->proxy_protocol == NULL) {
-            return NGX_DECLINED;
+            return NGX_DECLINED;  // 没有PROXY协议则返回
         }
-
-        value = &r->connection->proxy_protocol->src_addr;
+        value = &r->connection->proxy_protocol->src_addr;  // 直接从协议获取源地址
         xfwd = NULL;
-
         break;
 
+    /* 处理自定义header（默认分支） */
     default: /* NGX_HTTP_REALIP_HEADER */
+        part = &r->headers_in.headers.part;  // 获取请求头链表第一个分区
+        header = part->elts;                 // 获取当前分区的元素数组
 
-        part = &r->headers_in.headers.part;
-        header = part->elts;
+        /* 从配置获取预计算的header信息 */
+        hash = rlcf->hash;       // header名称的哈希值
+        len = rlcf->header.len;  // header名称长度
+        p = rlcf->header.data;   // header名称字符串
 
-        hash = rlcf->hash;
-        len = rlcf->header.len;
-        p = rlcf->header.data;
-
-        for (i = 0; /* void */ ; i++) {
-
-            if (i >= part->nelts) {
-                if (part->next == NULL) {
+        /* 遍历所有请求头寻找匹配项 */
+        for (i = 0; ; i++) {
+            if (i >= part->nelts) {          // 当前分区遍历完
+                if (part->next == NULL) {    // 没有下一个分区则退出
                     break;
                 }
-
-                part = part->next;
-                header = part->elts;
-                i = 0;
+                part = part->next;           // 移动到下一个分区
+                header = part->elts;         // 获取新分区的元素数组
+                i = 0;                       // 重置索引
             }
 
+            /* 通过哈希和字符串比较快速匹配header */
             if (hash == header[i].hash
                 && len == header[i].key.len
                 && ngx_strncmp(p, header[i].lowcase_key, len) == 0)
             {
-                value = &header[i].value;
+                value = &header[i].value;  // 找到匹配的header值
                 xfwd = NULL;
-
-                goto found;
+                goto found;  // 跳转到处理逻辑
             }
         }
-
-        return NGX_DECLINED;
+        return NGX_DECLINED;  // 没有找到匹配的header
     }
 
 found:
-
+    /* 获取当前连接对象 */
     c = r->connection;
 
-    addr.sockaddr = c->sockaddr;
-    addr.socklen = c->socklen;
-    /* addr.name = c->addr_text; */
+    /* 保存原始地址信息 */
+    addr.sockaddr = c->sockaddr;  // 原始socket地址
+    addr.socklen = c->socklen;    // 地址结构长度
+    /* addr.name = c->addr_text; */  // 原始地址文本（已注释）
 
+    /* 调用核心函数解析真实地址 */
     if (ngx_http_get_forwarded_addr(r, &addr, xfwd, value, rlcf->from,
                                     rlcf->recursive)
         != NGX_DECLINED)
     {
+        /* 特殊处理PROXY协议的端口 */
         if (rlcf->type == NGX_HTTP_REALIP_PROXY) {
             ngx_inet_set_port(addr.sockaddr, c->proxy_protocol->src_port);
         }
 
+        /* 设置新的客户端地址 */
         return ngx_http_realip_set_addr(r, &addr);
     }
 
-    return NGX_DECLINED;
+    return NGX_DECLINED;  // 没有找到有效的真实地址
 }
 
 
